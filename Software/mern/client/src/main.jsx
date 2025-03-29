@@ -1,12 +1,10 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom/client";
-import {
-  createBrowserRouter,
-  RouterProvider,
-} from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import App from "./App";
 import Record from "./components/Record";
 import RecordList from "./components/RecordList";
+import InputForm from "./components/InputForm";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -31,14 +29,8 @@ const router = createBrowserRouter([
     ],
   },
   {
-    path: "/edit/:id",
-    element: <App />,
-    children: [
-      {
-        path: "/edit/:id",
-        element: <Record />,
-      },
-    ],
+    path: "/form",
+    element: <InputForm />,
   },
 ]);
 
