@@ -57,7 +57,7 @@ def connect_to_mongodb():
 
 def load_patient_data_from_mongodb(collection):
     """Load patient data from MongoDB"""
-    if not collection:
+    if collection is None:  # Fixed: use 'is None' instead of direct boolean test
         logger.error("Cannot load patient data: MongoDB connection not available")
         return []
     
@@ -355,8 +355,9 @@ def main():
     parser.add_argument("--photos-dir", help="Directory containing patient photos (default: photos)")
     parser.add_argument("--model-path", help="Path to save trained model (default: face_recognition_model.yml)")
     parser.add_argument("--mapping-path", help="Path to save patient mapping (default: patient_mapping.pkl)")
-    parser.add_argument("--verify", action="store_true", help="Verify the model after training")
+    parser.add_argument("--verify", action="store_true", help="Verify the model after training") 
     parser.add_argument("--test-dir", help="Directory containing test photos")
+    parser.add_argument("--simple", action="store_true", help="Simple mode: skip MongoDB and use files from photos directory")
     args = parser.parse_args()
     
     # Update paths from arguments if provided
@@ -398,16 +399,23 @@ def main():
     
     # Load patient data
     patients = []
-    if args.no_mongodb:
-        logger.info("Skipping MongoDB - loading patients from photo directory")
+    
+    # Use simple mode if specified or no-mongodb
+    if args.simple or args.no_mongodb:
+        logger.info("Simple mode: loading patients directly from photo directory")
         patients = load_patient_data_from_directory(PHOTOS_DIR)
     else:
-        # Connect to MongoDB
-        mongo_client, db, collection = connect_to_mongodb()
-        if collection:
-            patients = load_patient_data_from_mongodb(collection)
-        else:
-            logger.warning("MongoDB connection failed - falling back to directory-based loading")
+        try:
+            # Connect to MongoDB
+            mongo_client, db, collection = connect_to_mongodb()
+            if collection is not None:  # Fixed: use 'is not None' instead of direct boolean test
+                patients = load_patient_data_from_mongodb(collection)
+            else:
+                logger.warning("MongoDB connection failed - falling back to directory-based loading")
+                patients = load_patient_data_from_directory(PHOTOS_DIR)
+        except Exception as e:
+            logger.error(f"Error with MongoDB: {e}")
+            logger.info("Falling back to simple mode (loading from directory)")
             patients = load_patient_data_from_directory(PHOTOS_DIR)
     
     if not patients:

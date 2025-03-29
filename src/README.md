@@ -26,6 +26,15 @@ Options:
 - `--no-mongodb`: Skip MongoDB and load patients from photo directory
 - `--verify`: Verify the model accuracy after training
 - `--test-dir PATH`: Directory containing test photos
+- `--simple`: Simple mode - skip MongoDB and just use files from photos directory
+
+For most users, the simple mode is recommended:
+
+```bash
+python src/train_face_model.py --simple
+```
+
+This avoids MongoDB connection issues and just uses the photos in your photos directory.
 
 ## Running Face Recognition
 
