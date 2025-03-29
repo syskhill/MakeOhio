@@ -566,7 +566,9 @@ def run_face_recognition():
                     best_confidence = min([conf for pred, conf in zip(predictions, confidences) if pred == most_common_label])
                     
                     # Convert confidence to a more intuitive 0-100 scale (100 is best match)
-                    confidence_score = 100 - min(100, best_confidence)
+                    # LBPH returns distance values, where lower values mean better match
+                    # Standard conversion formula - adjust values based on testing
+                    confidence_score = max(0, min(100, 100 * (1 - (best_confidence / 100))))
                     
                     # Display confidence score on frame
                     cv2.putText(frame, f"Conf: {confidence_score:.1f}%", 
