@@ -92,7 +92,29 @@ def main():
     sync_process = None
     if not args.no_sync:
         logger.info("[Step 2/4] Starting photo sync service...")
-        sync_cmd = f"python {os.path.join(script_dir, 'photo_sync.py')}"
+        
+        # Create the command with appropriate syntax for the platform
+        if sys.platform == 'win32':
+            sync_cmd = f"start cmd /k python {os.path.join(script_dir, 'photo_sync.py')}"
+        else:
+            # For Linux/Mac
+            terminal_app = "gnome-terminal"
+            # Check if we're on macOS
+            if sys.platform == 'darwin':
+                terminal_app = "open -a Terminal"
+            
+            # Try to detect terminal application
+            for term in ["gnome-terminal", "xterm", "konsole", "terminator"]:
+                try:
+                    subprocess.run(["which", term], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                    terminal_app = term
+                    break
+                except:
+                    continue
+                    
+            # Create command for detected terminal
+            sync_cmd = f"{terminal_app} -- python {os.path.join(script_dir, 'photo_sync.py')}"
+            
         sync_process = run_command(sync_cmd, background=True)
         
         # Give the sync service time to process photos
@@ -106,25 +128,48 @@ def main():
         logger.info("Press Ctrl+C in the sync window to stop the service")
         return
     
-    # Step 3: Run face recognition
+    # Step 3: Run face recognition in a separate window
     if args.test:
         logger.info("[Step 3/4] Running face recognition test...")
-        if sys.platform == 'win32':
-            # Windows needs different env var syntax
-            rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
-        else:
-            rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
+        script_name = 'test_recognition.py'
     elif args.debug:
         logger.info("[Step 3/4] Starting face recognition system in DEBUG mode...")
-        rec_cmd = f"python {os.path.join(script_dir, 'debug_recognition.py')}"
+        script_name = 'debug_recognition.py'
     else:
         logger.info("[Step 3/4] Starting face recognition system with debug overlay...")
-        # Add environment variable to enable debug display
-        if sys.platform == 'win32':
-            # Windows needs different env var syntax
-            rec_cmd = f"set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+        script_name = 'face_recognition_fix.py'
+        
+    # Create a platform-specific command to launch in a new window
+    if sys.platform == 'win32':
+        # Windows: use start cmd to create new console window
+        if script_name == 'face_recognition_fix.py':
+            # Debug mode with environment variable
+            rec_cmd = f"start cmd /k set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, script_name)}"
         else:
-            rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+            rec_cmd = f"start cmd /k python {os.path.join(script_dir, script_name)}"
+    else:
+        # Linux/Mac: find available terminal
+        terminal_app = "gnome-terminal"
+        
+        # Check if we're on macOS
+        if sys.platform == 'darwin':
+            terminal_app = "open -a Terminal"
+        
+        # Try to detect terminal application
+        for term in ["gnome-terminal", "xterm", "konsole", "terminator"]:
+            try:
+                subprocess.run(["which", term], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                terminal_app = term
+                break
+            except:
+                continue
+                
+        # Create command with appropriate shell syntax for setting env var
+        if script_name == 'face_recognition_fix.py':
+            # Debug mode with environment variable
+            rec_cmd = f"{terminal_app} -- bash -c \"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, script_name)}\""
+        else:
+            rec_cmd = f"{terminal_app} -- python {os.path.join(script_dir, script_name)}"
     
     rec_process = run_command(rec_cmd, background=True)
     
@@ -172,14 +217,35 @@ def main():
                 if rec_process and rec_process.poll() is not None:
                     logger.warning("Face recognition has stopped")
                     print("Face recognition window closed. Restarting...")
-                    # Restart face recognition
-                    if args.debug:
-                        rec_cmd = f"python {os.path.join(script_dir, 'debug_recognition.py')}"
+                    # Restart face recognition in a new window
+                    if args.test:
+                        script_name = 'test_recognition.py'
+                    elif args.debug:
+                        script_name = 'debug_recognition.py'
                     else:
-                        if sys.platform == 'win32':
-                            rec_cmd = f"set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+                        script_name = 'face_recognition_fix.py'
+                        
+                    # Create platform-specific restart command for new window
+                    if sys.platform == 'win32':
+                        if script_name == 'face_recognition_fix.py':
+                            rec_cmd = f"start cmd /k set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, script_name)}"
                         else:
-                            rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+                            rec_cmd = f"start cmd /k python {os.path.join(script_dir, script_name)}"
+                    else:
+                        # Find terminal application again
+                        terminal_app = "gnome-terminal"
+                        for term in ["gnome-terminal", "xterm", "konsole", "terminator"]:
+                            try:
+                                subprocess.run(["which", term], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                                terminal_app = term
+                                break
+                            except:
+                                continue
+                                
+                        if script_name == 'face_recognition_fix.py':
+                            rec_cmd = f"{terminal_app} -- bash -c \"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, script_name)}\""
+                        else:
+                            rec_cmd = f"{terminal_app} -- python {os.path.join(script_dir, script_name)}"
                     rec_process = run_command(rec_cmd, background=True)
                 
                 time.sleep(1)
