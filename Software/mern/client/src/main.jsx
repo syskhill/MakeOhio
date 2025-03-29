@@ -5,6 +5,7 @@ import App from "./App";
 import Record from "./components/Record";
 import RecordList from "./components/RecordList";
 import InputForm from "./components/InputForm";
+import AdminPage from "./components/AdminPage";
 import "./index.css";
 
 const router = createBrowserRouter([
@@ -13,7 +14,7 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       {
-        path: "/",
+        path: "",
         element: <RecordList />,
       },
     ],
@@ -23,7 +24,7 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       {
-        path: "/create",
+        path: "",
         element: <Record />,
       },
     ],
@@ -31,6 +32,10 @@ const router = createBrowserRouter([
   {
     path: "/form",
     element: <InputForm />,
+  },
+  {
+    path: "/admin",
+    element: <AdminPage />,
   },
 ]);
 

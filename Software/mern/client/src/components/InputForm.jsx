@@ -3,12 +3,13 @@ import React, { useState } from "react";
 export default function InputForm() {
   const [formData, setFormData] = useState({
     name: "",
-    idNumber: "",
-    dosage: "",
-    timeslot: "",
-    config: "",
-    
+    photoUrl: "",
+    pillTimes: "",
+    slotNumber: ""
   });
+  
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -17,24 +18,77 @@ export default function InputForm() {
       [name]: value,
     }));
   };
+  
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Create a preview URL for the selected image
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
+    
+    // For a real app, you would upload to a server and get back a URL
+    // For this example, we'll just store the file name
+    setFormData((prevData) => ({
+      ...prevData,
+      photoUrl: file.name,
+    }));
+  };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("Form Data Submitted:", formData);
-    alert("Form submitted successfully!");
+    setIsSubmitting(true);
+    
+    try {
+      // In a real app, you would first upload the image to a storage service
+      // and then save the record with the image URL
+      
+      const response = await fetch("http://localhost:5050/record", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      // Reset the form
+      setFormData({
+        name: "",
+        photoUrl: "",
+        pillTimes: "",
+        slotNumber: ""
+      });
+      setImagePreview(null);
+      
+      alert("Patient record added successfully!");
+      
+      // Redirect to the patient list
+      window.location.href = "/";
+      
+    } catch (error) {
+      console.error("Error submitting the form:", error);
+      alert("Failed to submit the form. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      <h1 className="text-2xl font-bold mb-6">Input Form</h1>
+      <h1 className="text-2xl font-bold mb-6">Patient Pill Management</h1>
       <form
         onSubmit={handleSubmit}
         className="bg-white p-6 rounded shadow-md w-96"
+        encType="multipart/form-data"
       >
         {/* Name Input */}
         <div className="mb-4">
           <label className="block text-gray-700 font-medium mb-2" htmlFor="name">
-            Name
+            Patient Name
           </label>
           <input
             type="text"
@@ -43,124 +97,93 @@ export default function InputForm() {
             value={formData.name}
             onChange={handleChange}
             className="w-full p-2 border border-gray-300 rounded"
-            placeholder="Enter Name"
+            placeholder="Enter patient name"
+            required
           />
         </div>
 
-        {/* ID Number Input */}
+        {/* Photo Upload */}
         <div className="mb-4">
           <label
             className="block text-gray-700 font-medium mb-2"
-            htmlFor="idNumber"
+            htmlFor="photo"
           >
-            ID Number
+            Patient Photo
           </label>
           <input
-            type="text"
-            id="idNumber"
-            name="idNumber"
-            value={formData.idNumber}
-            onChange={handleChange}
+            type="file"
+            id="photo"
+            name="photo"
+            accept="image/*"
+            onChange={handleFileChange}
             className="w-full p-2 border border-gray-300 rounded"
-            placeholder="Enter ID Number"
+            required
           />
+          {imagePreview && (
+            <div className="mt-2">
+              <img 
+                src={imagePreview} 
+                alt="Preview" 
+                className="w-full h-40 object-cover rounded" 
+              />
+            </div>
+          )}
         </div>
 
-        {/* Dosage Input */}
+        {/* Pill Times Input */}
         <div className="mb-4">
           <label
             className="block text-gray-700 font-medium mb-2"
-            htmlFor="dosage"
+            htmlFor="pillTimes"
           >
-            Dosage
+            Allotted Pill Times
           </label>
           <input
             type="text"
-            id="dosage"
-            name="dosage"
-            value={formData.dosage}
+            id="pillTimes"
+            name="pillTimes"
+            value={formData.pillTimes}
             onChange={handleChange}
             className="w-full p-2 border border-gray-300 rounded"
-            placeholder="Enter Dosage"
+            placeholder="Example: 8:00,12:00,18:00"
+            required
           />
+          <p className="text-sm text-gray-500 mt-1">
+            Enter times separated by commas (24-hour format)
+          </p>
         </div>
 
-        {/* Timeslot Input */}
+        {/* Slot Number Input */}
         <div className="mb-4">
           <label
             className="block text-gray-700 font-medium mb-2"
-            htmlFor="timeslot"
+            htmlFor="slotNumber"
           >
-            Timeslot
+            Slot Number
           </label>
           <input
-            type="text"
-            id="timeslot"
-            name="timeslot"
-            value={formData.timeslot}
+            type="number"
+            id="slotNumber"
+            name="slotNumber"
+            min="1"
+            max="10"
+            value={formData.slotNumber}
             onChange={handleChange}
             className="w-full p-2 border border-gray-300 rounded"
-            placeholder="Enter Timeslot"
-          />
-        </div>
-
-        {/* Config Input */}
-        <div className="mb-4">
-          <label
-            className="block text-gray-700 font-medium mb-2"
-            htmlFor="config"
-          >
-            Config
-          </label>
-          <input
-            type="text"
-            id="config"
-            name="config"
-            value={formData.config}
-            onChange={handleChange}
-            className="w-full p-2 border border-gray-300 rounded"
-            placeholder="Enter Config"
+            placeholder="Enter slot number (1-10)"
+            required
           />
         </div>
 
         {/* Submit Button */}
         <button
           type="submit"
-          className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+          className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 disabled:bg-blue-300"
+          disabled={isSubmitting}
         >
-          Submit
+          {isSubmitting ? "Submitting..." : "Save Patient Record"}
         </button>
       </form>
     </div>
   );
 }
-
-// filepath: c:\Users\conno\Downloads\Hackathons\MakeOhio\Software\mern\client\src\main.jsx
-
-
-const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <App />,
-    children: [
-      {
-        path: "/",
-        element: <RecordList />,
-      },
-    ],
-  },
-  {
-    path: "/create",
-    element: <App />,
-    children: [
-      {
-        path: "/create",
-        element: <Record />,
-      },
-    ],
-  },
-  {
-    path: "/form",
-    element: <InputForm />, // Add this route for the InputForm
-  },
-]);

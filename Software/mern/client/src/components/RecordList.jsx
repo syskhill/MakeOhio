@@ -7,10 +7,13 @@ const Record = (props) => (
       {props.record.name}
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
-      {props.record.position}
+      {props.record.photoUrl}
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
-      {props.record.level}
+      {props.record.pillTimes}
+    </td>
+    <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
+      {props.record.slotNumber}
     </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
       <div className="flex gap-2">
@@ -79,20 +82,31 @@ export default function RecordList() {
   // This following section will display the table with the records of individuals.
   return (
     <>
-      <h3 className="text-lg font-semibold p-4">Employee Records</h3>
+      <h3 className="text-lg font-semibold p-4">Patient Records</h3>
       <div className="border rounded-lg overflow-hidden">
         <div className="relative w-full overflow-auto">
+          <div className="mb-4 p-4">
+            <Link 
+              to="/form" 
+              className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+            >
+              Add New Patient
+            </Link>
+          </div>
           <table className="w-full caption-bottom text-sm">
             <thead className="[&amp;_tr]:border-b">
               <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
-                  Name
+                  Patient Name
                 </th>
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
-                  Position
+                  Photo
                 </th>
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
-                  Level
+                  Pill Times
+                </th>
+                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
+                  Slot Number
                 </th>
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
                   Action
