@@ -1,72 +1,74 @@
-# Face Recognition Photo Management
+# Face Recognition System
 
-This directory contains scripts for face recognition and photo management.
+This is a face recognition system for a medication pill dispenser. It recognizes patients and dispenses medication based on scheduled pill times.
 
-## Files
+## New Two-Step Usage Process
 
-- `face_recognition.py` - Main face recognition system
-- `face_recognition_fix.py` - Version with dependency checking and error handling
-- `check_mongo.py` - Script to check MongoDB patient data and photo URLs
-- `photo_sync.py` - Background service to automatically sync photos from MongoDB
-- `test_recognition.py` - Diagnostic tool for testing face recognition performance
+The face recognition system now uses a two-step process:
 
-## Requirements
+1. **Training**: Run `train_face_model.py` to load patient photos, train the model, and save it
+2. **Recognition**: Run `run_face_recognition.py` to use the pre-trained model for face recognition
 
-Install required dependencies:
+This separation allows the recognition to run efficiently without requiring retraining each time.
 
-```bash
-pip install opencv-contrib-python pymongo pyserial flask requests
-```
+## Training the Model
 
-## Photo Management
-
-Photos for face recognition should be stored in:
-```
-/Software/mern/client/public/photos/
-```
-
-Each patient record in MongoDB should have a `photoUrl` field containing one of:
-1. A local file name (e.g., "john.jpg")
-2. A full URL (e.g., "https://example.com/photos/john.jpg")
-3. A base64 encoded image (e.g., "data:image/jpeg;base64,...")
-
-## Tools
-
-### Check MongoDB Patient Data
-Inspect MongoDB patient records and photo URLs:
+Train the model using patient photos:
 
 ```bash
-python src/check_mongo.py
+python src/train_face_model.py
 ```
 
-### Automatic Photo Sync
-Run this in the background to automatically download/sync photos when new patients are added:
+Options:
+- `--photos-dir PATH`: Path to directory containing patient photos
+- `--model PATH`: Path to save the trained model
+- `--mapping PATH`: Path to save the patient mapping
+- `--no-mongodb`: Skip MongoDB and load patients from photo directory
+- `--verify`: Verify the model accuracy after training
+- `--test-dir PATH`: Directory containing test photos
+
+## Running Face Recognition
+
+Run the face recognition system using the pre-trained model:
 
 ```bash
-python src/photo_sync.py
+python src/run_face_recognition.py
 ```
 
-This service will:
-- Monitor MongoDB for new or updated patient records
-- Download photos from URLs or decode base64 images
-- Save all photos to the correct folder with proper naming
-- Run continuously to keep photos in sync
+Options:
+- `--camera ID`: Camera ID to use (default: 0)
+- `--threshold VALUE`: Recognition confidence threshold (default: 20)
+- `--model PATH`: Path to trained model file
+- `--mapping PATH`: Path to patient mapping file
+- `--arduino-port PORT`: Arduino serial port
+- `--no-arduino`: Run without Arduino connection
+- `--debug`: Enable debug mode
 
-### Test Face Recognition
-Test face recognition performance and analyze results:
+## Diagnostic Tools
 
-```bash
-python src/test_recognition.py
-```
+Several diagnostic tools are available:
 
-### Main Face Recognition System
-Run the main face recognition system:
+- `test_camera.py`: Test camera access and performance
+- `test_arduino.py`: Test Arduino connectivity
+- `face_arduino_test.py`: Test camera and Arduino together
+- `debug_serial.py`: Monitor serial communication
+- `test_messages.py`: Test LCD messages on Arduino
 
-```bash
-python src/face_recognition_fix.py
-```
+## Photo Requirements
 
-This will connect to:
-- MongoDB for patient data
-- Arduino for dispenser control
-- Camera for face recognition
+For best results:
+- Place patient photos in the photos directory
+- Use filenames in one of these formats:
+  - `patient_id.jpg` (single photo)
+  - `patient_id_1.jpg`, `patient_id_2.jpg`, etc. (multiple photos)
+- Ensure photos have good lighting and clear face visibility
+- Multiple photos per patient will improve recognition accuracy
+
+## Troubleshooting
+
+If face recognition doesn't work:
+1. Check if the model was trained successfully
+2. Verify camera connectivity with `test_camera.py`
+3. Check Arduino connection with `test_arduino.py`
+4. Test messages on the LCD with `test_messages.py`
+5. Try running in debug mode: `python src/run_face_recognition.py --debug`
