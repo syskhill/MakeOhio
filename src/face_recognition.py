@@ -4,10 +4,14 @@ import time
 import serial
 import os
 import json
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 import threading
 import logging
+import base64
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 # ================ Configuration ================
 API_PORT = 5050
@@ -16,8 +20,12 @@ ARDUINO_BAUD_RATE = 9600
 CAMERA_ID = 0  # Default camera (0 is usually the built-in webcam)
 FACE_CASCADE_PATH = "haarcascade_frontalface_default.xml"
 RECOGNITION_CONFIDENCE_THRESHOLD = 70  # Minimum confidence (0-100)
-PHOTOS_DIR = "photos"  # Directory to store patient photos
+PHOTOS_DIR = "/home/connor/MakeOhio/Software/mern/client/public/photos"  # Directory for photos
 MODEL_SAVE_PATH = "face_recognition_model.yml"  # Path to save/load trained model
+MERN_SERVER_URL = "http://localhost:5050/record"  # URL of the MERN stack server
+MONGODB_URI = "mongodb+srv://bn00017:QqqUP3%40duTjSxPu@cluster0.nh2ok3z.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGODB_DB = "employees"
+MONGODB_COLLECTION = "patients"
 
 # Create photos directory if it doesn't exist
 os.makedirs(PHOTOS_DIR, exist_ok=True)
@@ -32,6 +40,18 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("face_recognition")
+
+# ================ MongoDB Connection ================
+try:
+    mongo_client = MongoClient(MONGODB_URI)
+    db = mongo_client[MONGODB_DB]
+    collection = db[MONGODB_COLLECTION]
+    logger.info(f"Connected to MongoDB: {MONGODB_URI}")
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {e}")
+    mongo_client = None
+    db = None
+    collection = None
 
 # ================ Initialize Face Detection ================
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + FACE_CASCADE_PATH)
@@ -69,149 +89,53 @@ try:
 except Exception as e:
     logger.error(f"Error initializing Arduino connection: {e}")
 
-# ================ Initialize Flask API ================
-app = Flask(__name__)
-
-@app.route('/')
-def index():
-    return jsonify({"status": "running", "message": "Face Recognition API"})
-
-@app.route('/photos/<path:filename>')
-def get_photo(filename):
-    return send_from_directory(PHOTOS_DIR, filename)
-
-@app.route('/record/arduino/patients', methods=['GET'])
-def get_patients():
-    return jsonify(patients)
-
-@app.route('/record/arduino/patients', methods=['POST'])
-def add_patient():
-    data = request.json
-    # Validate required fields
-    if not all(k in data for k in ['id', 'name', 'slotNumber']):
-        return jsonify({"error": "Missing required fields"}), 400
-    
-    # Add patient to the list
-    patients.append(data)
-    
-    # Save patient data to file
-    save_patient_data()
-    
-    return jsonify({"status": "success", "message": "Patient added"}), 201
-
-@app.route('/record/arduino/patients/<patient_id>', methods=['DELETE'])
-def delete_patient(patient_id):
-    global patients
-    initial_count = len(patients)
-    patients = [p for p in patients if p['id'] != patient_id]
-    
-    if len(patients) < initial_count:
-        save_patient_data()
-        return jsonify({"status": "success", "message": "Patient deleted"})
-    else:
-        return jsonify({"error": "Patient not found"}), 404
-
-@app.route('/record/arduino/access/<patient_id>', methods=['GET'])
-def check_access(patient_id):
-    # Find the patient
-    patient = next((p for p in patients if p['id'] == patient_id), None)
-    
-    if not patient:
-        return jsonify({"access": False, "message": "Patient not found", "slotNumber": 0})
-    
-    # In a real system, you would check if the current time is within a valid window
-    # For this example, we'll always grant access
-    return jsonify({
-        "access": True,
-        "message": "Access granted",
-        "slotNumber": patient.get('slotNumber', 1)
-    })
-
-@app.route('/record/arduino/upload-photo/<patient_id>', methods=['POST'])
-def upload_photo(patient_id):
-    if 'photo' not in request.files:
-        return jsonify({"error": "No photo provided"}), 400
-    
-    file = request.files['photo']
-    if file.filename == '':
-        return jsonify({"error": "No photo selected"}), 400
-    
-    # Save the photo
-    filename = f"{patient_id}.jpg"
-    file_path = os.path.join(PHOTOS_DIR, filename)
-    file.save(file_path)
-    
-    # Update patient record with photo path
-    for patient in patients:
-        if patient['id'] == patient_id:
-            patient['photo'] = filename
-            break
-    
-    save_patient_data()
-    
-    # Retrain the face recognition model
-    load_patient_photos()
-    train_recognizer()
-    
-    return jsonify({"status": "success", "message": "Photo uploaded"})
-
-@app.route('/record/arduino/status', methods=['GET'])
-def get_status():
-    status = {
-        "arduino_connected": arduino is not None,
-        "recognition_active": recognition_active,
-        "patients_loaded": len(patients),
-        "last_recognition": last_recognition_result
-    }
-    return jsonify(status)
-
-@app.route('/record/arduino/start-recognition', methods=['POST'])
-def start_recognition():
-    global recognition_active, face_recognition_thread
-    
-    if recognition_active:
-        return jsonify({"status": "already_running", "message": "Face recognition is already running"})
-    
-    recognition_active = True
-    face_recognition_thread = threading.Thread(target=run_face_recognition)
-    face_recognition_thread.daemon = True
-    face_recognition_thread.start()
-    
-    return jsonify({"status": "started", "message": "Face recognition started"})
-
-@app.route('/record/arduino/stop-recognition', methods=['POST'])
-def stop_recognition():
-    global recognition_active
-    
-    if not recognition_active:
-        return jsonify({"status": "not_running", "message": "Face recognition is not running"})
-    
-    recognition_active = False
-    # The thread will exit on its own when it checks the flag
-    
-    return jsonify({"status": "stopped", "message": "Face recognition stopping"})
-
 # ================ Helper Functions ================
-def save_patient_data():
-    """Save patient data to a JSON file"""
-    with open("patients.json", 'w') as f:
-        json.dump(patients, f, indent=2)
-    logger.info(f"Saved {len(patients)} patients to database")
-
-def load_patient_data():
-    """Load patient data from JSON file"""
+def load_patient_data_from_mongodb():
+    """Load patient data directly from MongoDB"""
     global patients
+    
+    if not mongo_client:
+        logger.error("Cannot load patient data: MongoDB connection not available")
+        return False
+    
     try:
-        if os.path.exists("patients.json"):
-            with open("patients.json", 'r') as f:
-                patients = json.load(f)
-            logger.info(f"Loaded {len(patients)} patients from database")
-        else:
-            logger.warning("No patient database found. Starting with empty database.")
-            patients = []
-    except Exception as e:
-        logger.error(f"Error loading patient data: {e}")
+        # Get all patients from MongoDB
+        patients_cursor = collection.find({})
+        
+        # Convert MongoDB cursor to list of patient objects
         patients = []
+        for patient in patients_cursor:
+            # Format the patient data
+            patients.append({
+                "id": str(patient["_id"]),
+                "name": patient.get("name", "Unknown"),
+                "photoUrl": patient.get("photoUrl", ""),
+                "pillTimes": patient.get("pillTimes", ""),
+                "slotNumber": int(patient.get("slotNumber", 0))
+            })
+        
+        logger.info(f"Loaded {len(patients)} patients from MongoDB database")
+        return True
+    except Exception as e:
+        logger.error(f"Error loading patient data from MongoDB: {e}")
+        return False
+
+def load_patient_data_from_api():
+    """Load patient data from the MERN API as fallback"""
+    global patients
+    
+    try:
+        response = requests.get(f"{MERN_SERVER_URL}/arduino/patients")
+        if response.status_code == 200:
+            patients = response.json()
+            logger.info(f"Loaded {len(patients)} patients from API")
+            return True
+        else:
+            logger.error(f"Error fetching patient data: HTTP {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Error connecting to API: {e}")
+        return False
 
 def load_patient_photos():
     """Load and process patient photos for face recognition"""
@@ -220,20 +144,69 @@ def load_patient_photos():
     
     for patient in patients:
         patient_id = patient['id']
-        photo_filename = patient.get('photo')
+        photo_url = patient.get('photoUrl')
         
-        if not photo_filename:
+        if not photo_url:
             logger.warning(f"No photo specified for patient {patient['name']} ({patient_id})")
             continue
         
-        # Check if photo exists
-        file_path = os.path.join(PHOTOS_DIR, photo_filename)
-        if not os.path.exists(file_path):
-            logger.warning(f"Photo file not found for patient {patient['name']} ({patient_id}): {file_path}")
-            continue
+        # First, try to load photo from the specified path (could be a URL or file path)
+        # In MongoDB, photoUrl could be a full URL, relative path, or base64 string
         
-        # Load and process the photo
+        # If it starts with http or https, download it
+        if photo_url.startswith('http'):
+            try:
+                response = requests.get(photo_url)
+                if response.status_code == 200:
+                    # Save to local file
+                    file_path = os.path.join(PHOTOS_DIR, f"{patient_id}.jpg")
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+                    logger.info(f"Downloaded photo for patient {patient['name']} ({patient_id}) from URL")
+                else:
+                    logger.warning(f"Failed to download photo for patient {patient['name']} ({patient_id}): HTTP {response.status_code}")
+                    continue
+            except Exception as e:
+                logger.error(f"Error downloading photo for patient {patient['name']} ({patient_id}): {e}")
+                continue
+        # If it might be a base64 encoded image (starts with data:image)
+        elif photo_url.startswith('data:image'):
+            try:
+                # Extract the base64 data
+                encoded_data = photo_url.split(',')[1]
+                image_data = base64.b64decode(encoded_data)
+                
+                # Save to local file
+                file_path = os.path.join(PHOTOS_DIR, f"{patient_id}.jpg")
+                with open(file_path, 'wb') as f:
+                    f.write(image_data)
+                logger.info(f"Decoded base64 photo for patient {patient['name']} ({patient_id})")
+            except Exception as e:
+                logger.error(f"Error decoding base64 photo for patient {patient['name']} ({patient_id}): {e}")
+                continue
+        # Otherwise, treat it as a file path
+        else:
+            # Check common locations
+            possible_paths = [
+                photo_url,
+                os.path.join(PHOTOS_DIR, photo_url),
+                os.path.join("/home/connor/MakeOhio/Software/mern/client/public", photo_url),
+                os.path.join("/home/connor/MakeOhio/Software/mern/client/src/assets", photo_url)
+            ]
+            
+            file_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path:
+                logger.warning(f"Photo file not found for patient {patient['name']} ({patient_id})")
+                continue
+        
+        # Now file_path should be set to the local path of the photo
         try:
+            # Load and process the photo
             img = cv2.imread(file_path)
             if img is None:
                 logger.warning(f"Failed to read image file for patient {patient['name']} ({patient_id})")
@@ -307,6 +280,68 @@ def load_trained_model():
         except Exception as e:
             logger.error(f"Error loading face recognition model: {e}")
     return False
+
+def check_patient_access(patient_id):
+    """Check if the patient has access at the current time using MongoDB"""
+    if mongo_client:
+        try:
+            # Get patient from MongoDB
+            patient = collection.find_one({"_id": ObjectId(patient_id)})
+            
+            if not patient:
+                logger.warning(f"Patient not found in MongoDB: {patient_id}")
+                return False, "Patient not found", 0
+            
+            # Get current time
+            now = datetime.now()
+            current_hour = now.hour
+            current_minute = now.minute
+            
+            # Parse pill times (format expected: "8:00,12:00,18:00")
+            pill_time_strings = patient.get("pillTimes", "").split(",")
+            pill_time_strings = [t.strip() for t in pill_time_strings if t.strip()]
+            
+            if not pill_time_strings:
+                # If no pill times are specified, allow access (for testing)
+                logger.info(f"No pill times specified for patient {patient['name']}, allowing access")
+                return True, "Access granted (no pill times specified)", patient.get("slotNumber", 0)
+            
+            # Check if current time is within ±60 minutes of any pill time
+            for time_str in pill_time_strings:
+                try:
+                    hour, minute = map(int, time_str.split(":"))
+                    
+                    # Calculate difference in minutes
+                    diff_minutes = abs(
+                        (current_hour * 60 + current_minute) - (hour * 60 + minute)
+                    )
+                    
+                    # Allow access if within ±60 minutes
+                    if diff_minutes <= 60:
+                        logger.info(f"Access granted for patient {patient['name']} (within {diff_minutes} minutes of {time_str})")
+                        return True, f"Access granted (near pill time {time_str})", patient.get("slotNumber", 0)
+                except Exception as e:
+                    logger.error(f"Error parsing pill time '{time_str}': {e}")
+            
+            # No matching pill time found
+            logger.info(f"Access denied for patient {patient['name']} (not within pill time window)")
+            return False, "Access denied: Not within pill time window", patient.get("slotNumber", 0)
+            
+        except Exception as e:
+            logger.error(f"Error checking patient access in MongoDB: {e}")
+    
+    # Fallback to API if MongoDB connection fails
+    try:
+        response = requests.get(f"{MERN_SERVER_URL}/arduino/access/{patient_id}")
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("access", False), data.get("message", ""), data.get("slotNumber", 0)
+        else:
+            logger.error(f"Error checking patient access via API: HTTP {response.status_code}")
+            return False, "Error checking access", 0
+    except Exception as e:
+        logger.error(f"Error connecting to API for access check: {e}")
+        return False, f"Connection error: {str(e)}", 0
 
 def send_command_to_arduino(command):
     """Send a command to the Arduino"""
@@ -423,14 +458,7 @@ def run_face_recognition():
                             }
                             
                             # Check if patient has access
-                            slot_number = 1  # Default
-                            for p in patients:
-                                if p['id'] == patient_id:
-                                    slot_number = p.get('slotNumber', 1)
-                                    break
-                            
-                            # In a real application, check access times
-                            has_access = True  # Simplified for demo
+                            has_access, message, slot_number = check_patient_access(patient_id)
                             
                             # Display recognition result on frame
                             status_color = (0, 255, 0) if has_access else (0, 0, 255)
@@ -444,10 +472,10 @@ def run_face_recognition():
                             # Send command to Arduino
                             if has_access:
                                 logger.info(f"Access granted for slot {slot_number}")
-                                send_command_to_arduino(f"ACCESS:{patient_id},{slot_number}")
+                                send_command_to_arduino(f"ACCESS:{patient_id},{patient_name},{slot_number}")
                             else:
-                                logger.info("Access denied")
-                                send_command_to_arduino(f"DENY:{patient_id}")
+                                logger.info(f"Access denied: {message}")
+                                send_command_to_arduino(f"DENY:{patient_id},{message}")
                                 
                             last_recognition_time = current_time
                 except Exception as e:
@@ -469,14 +497,76 @@ def run_face_recognition():
     cv2.destroyAllWindows()
     logger.info("Face recognition thread stopped")
 
+# ================ Initialize Flask API ================
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return jsonify({"status": "running", "message": "Face Recognition System"})
+
+@app.route('/photos/<path:filename>')
+def get_photo(filename):
+    return send_from_directory(PHOTOS_DIR, filename)
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    status = {
+        "arduino_connected": arduino is not None,
+        "recognition_active": recognition_active,
+        "patients_loaded": len(patients),
+        "last_recognition": last_recognition_result,
+        "mongodb_connected": mongo_client is not None
+    }
+    return jsonify(status)
+
+@app.route('/start-recognition', methods=['POST'])
+def start_recognition():
+    global recognition_active, face_recognition_thread
+    
+    if recognition_active:
+        return jsonify({"status": "already_running", "message": "Face recognition is already running"})
+    
+    recognition_active = True
+    face_recognition_thread = threading.Thread(target=run_face_recognition)
+    face_recognition_thread.daemon = True
+    face_recognition_thread.start()
+    
+    return jsonify({"status": "started", "message": "Face recognition started"})
+
+@app.route('/stop-recognition', methods=['POST'])
+def stop_recognition():
+    global recognition_active
+    
+    if not recognition_active:
+        return jsonify({"status": "not_running", "message": "Face recognition is not running"})
+    
+    recognition_active = False
+    # The thread will exit on its own when it checks the flag
+    
+    return jsonify({"status": "stopped", "message": "Face recognition stopping"})
+
+@app.route('/reload-patients', methods=['POST'])
+def reload_patients():
+    """Reload patient data from MongoDB and retrain model"""
+    # Load patient data
+    if load_patient_data_from_mongodb() or load_patient_data_from_api():
+        # Load patient photos and train the recognizer
+        load_patient_photos()
+        train_recognizer()
+        return jsonify({"status": "success", "message": f"Reloaded {len(patients)} patients and retrained model"})
+    else:
+        return jsonify({"status": "error", "message": "Failed to reload patient data"}), 500
+
 # ================ Main Function ================
 def main():
     """Main function"""
     logger.info("Pill Dispenser Face Recognition System")
     logger.info("--------------------------------------")
     
-    # Load patient data
-    load_patient_data()
+    # Load patient data (try MongoDB first, then API)
+    if not load_patient_data_from_mongodb():
+        logger.warning("Failed to load from MongoDB, trying API...")
+        load_patient_data_from_api()
     
     # Load trained model or train a new one
     model_loaded = load_trained_model()
@@ -486,16 +576,17 @@ def main():
         load_patient_photos()
         train_recognizer()
     
-    # Start the web server in a separate thread
+    # Start the local web server in a separate thread (on a different port than MERN)
     server_thread = threading.Thread(target=app.run, kwargs={
         'host': '0.0.0.0',
-        'port': API_PORT,
+        'port': 5051,  # Different port to avoid conflict with MERN
         'debug': False
     })
     server_thread.daemon = True
     server_thread.start()
     
-    logger.info(f"API server running at http://localhost:{API_PORT}")
+    logger.info(f"Local API server running at http://localhost:5051")
+    logger.info(f"Using MERN server at {MERN_SERVER_URL}")
     
     # Start face recognition automatically
     global recognition_active, face_recognition_thread
@@ -512,9 +603,12 @@ def main():
         logger.info("Shutting down...")
         recognition_active = False
         
-        # Clean up Arduino connection
+        # Clean up
         if arduino:
             arduino.close()
+        
+        if mongo_client:
+            mongo_client.close()
         
         logger.info("Application terminated")
 
