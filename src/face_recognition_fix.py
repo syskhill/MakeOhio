@@ -59,7 +59,7 @@ ARDUINO_PORT = "/dev/ttyACM0"  # Common Arduino port on Linux, change as needed
 ARDUINO_BAUD_RATE = 9600
 CAMERA_ID = 0  # Default camera (0 is usually the built-in webcam)
 FACE_CASCADE_PATH = "haarcascade_frontalface_default.xml"
-RECOGNITION_CONFIDENCE_THRESHOLD = 50  # Lowered minimum confidence (0-100)
+RECOGNITION_CONFIDENCE_THRESHOLD = 20  # Lower threshold to detect faces with low confidence
 PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Software", "mern", "client", "public", "photos")
 MODEL_SAVE_PATH = "face_recognition_model.yml"  # Path to save/load trained model
 MERN_SERVER_URL = "http://localhost:5050/record"  # URL of the MERN stack server
@@ -441,6 +441,11 @@ def run_face_recognition():
     """Run continuous face recognition in a separate thread"""
     global recognition_active, last_recognition_result
     
+    # Check if debug mode is enabled
+    debug_mode = os.environ.get('PILL_DISPENSER_DEBUG', '0') == '1'
+    if debug_mode:
+        logger.info("DEBUG MODE ENABLED - Extra information will be displayed")
+    
     # Safety check: make sure we have a trained model
     if not patient_faces or not label_to_patient_map:
         logger.error("Cannot run face recognition - no trained model available")
@@ -615,8 +620,65 @@ def run_face_recognition():
                 except Exception as e:
                     logger.error(f"Error during face recognition: {e}")
         
-        # Display the frame
-        cv2.imshow('Face Recognition', frame)
+        # Add debug overlay if enabled
+        debug_mode = os.environ.get('PILL_DISPENSER_DEBUG', '0') == '1'
+        if debug_mode:
+            # Calculate FPS
+            current_time = time.time()
+            try:
+                fps = 1 / (current_time - getattr(run_face_recognition, 'last_frame_time', current_time))
+                run_face_recognition.frame_count = getattr(run_face_recognition, 'frame_count', 0) + 1
+            except ZeroDivisionError:
+                fps = 0
+            run_face_recognition.last_frame_time = current_time
+            
+            # Show FPS, frame count, and patient info
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, f"Frame: {getattr(run_face_recognition, 'frame_count', 0)}", 
+                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            
+            # Display label map
+            y_pos = 90
+            cv2.putText(frame, "Patient Database:", (10, y_pos), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            y_pos += 25
+            
+            for label, patient_id in label_to_patient_map.items():
+                # Find patient name
+                patient_name = "Unknown"
+                for p in patients:
+                    if p['id'] == patient_id:
+                        patient_name = p['name']
+                        break
+                
+                cv2.putText(frame, f"Label {label}: {patient_name}", (20, y_pos), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+                y_pos += 20
+                if y_pos > frame.shape[0] - 50:
+                    break
+            
+            # Add current recognition info
+            if last_recognition_result:
+                y_pos = 90
+                cv2.putText(frame, "Last Recognition:", (frame.shape[1] - 200, y_pos), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                y_pos += 25
+                
+                cv2.putText(frame, f"Name: {last_recognition_result['patient_name']}", 
+                           (frame.shape[1] - 190, y_pos),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+                y_pos += 20
+                
+                cv2.putText(frame, f"Conf: {last_recognition_result['confidence']:.1f}%", 
+                           (frame.shape[1] - 190, y_pos),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+        
+        # Display the frame with a title indicating debug mode
+        if debug_mode:
+            cv2.imshow('Face Recognition - DEBUG MODE', frame)
+        else:
+            cv2.imshow('Face Recognition', frame)
         
         # More efficient way to control frame rate and reduce CPU usage
         # 30ms delay (~33 FPS), break on 'q' press

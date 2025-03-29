@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--check-only", action="store_true", help="Only check MongoDB, don't start anything")
     parser.add_argument("--no-sync", action="store_true", help="Don't start photo sync service")
     parser.add_argument("--test", action="store_true", help="Run test recognition instead of full system")
+    parser.add_argument("--debug", action="store_true", help="Run with debug mode enabled")
     args = parser.parse_args()
     
     # Get the script directory
@@ -80,9 +81,13 @@ def main():
     if args.test:
         logger.info("[Step 3/4] Running face recognition test...")
         rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
+    elif args.debug:
+        logger.info("[Step 3/4] Starting face recognition system in DEBUG mode...")
+        rec_cmd = f"python {os.path.join(script_dir, 'debug_recognition.py')}"
     else:
         logger.info("[Step 3/4] Starting face recognition system...")
-        rec_cmd = f"python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+        # Add environment variable to enable debug display
+        rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
     
     rec_process = run_command(rec_cmd, background=True)
     
