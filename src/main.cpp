@@ -83,8 +83,19 @@ void setup() {
 }
 
 void loop() {
-  // Display current date and time
+  // Display current date and time if no message is active
   displayDateTime();
+  
+  // Debug: Periodically report if we're showing a message
+  static unsigned long lastDebugTime = 0;
+  if (millis() - lastDebugTime > 5000) { // Every 5 seconds
+    lastDebugTime = millis();
+    if (messageDisplayUntil > 0) {
+      Serial.print("Message display active for ");
+      Serial.print((messageDisplayUntil - millis()) / 1000.0);
+      Serial.println(" more seconds");
+    }
+  }
   
   // Check for commands via Serial
   if (Serial.available()) {
@@ -286,8 +297,15 @@ void rotateServoToSlot(int slotNumber) {
   pillDispenser.write(0);
 }
 
+// Global variable to track when message display should end
+unsigned long messageDisplayUntil = 0;
+
 // Display message on LCD
 void displayMessage(String line1, String line2, int duration) {
+  // Set when this message should expire (current time + duration)
+  messageDisplayUntil = millis() + duration;
+  
+  // Clear and display message
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(line1);
@@ -297,13 +315,35 @@ void displayMessage(String line1, String line2, int duration) {
     lcd.print(line2);
   }
   
-  if (duration > 0) {
+  // Log message to serial for debugging
+  Serial.print("LCD Message: \"");
+  Serial.print(line1);
+  Serial.print("\" \"");
+  Serial.print(line2);
+  Serial.print("\" (Duration: ");
+  Serial.print(duration);
+  Serial.println("ms)");
+  
+  // If duration is provided, delay (blocking)
+  // But only for short durations, otherwise we'll return immediately
+  // and let the displayDateTime function respect the messageDisplayUntil time
+  if (duration > 0 && duration <= 500) {
     delay(duration);
+    messageDisplayUntil = 0; // Reset immediately after delay
   }
 }
 
 // Display current date and time
 void displayDateTime() {
+  // If a message is currently being displayed and hasn't expired, don't update the display
+  unsigned long currentMillis = millis();
+  if (messageDisplayUntil > 0 && currentMillis < messageDisplayUntil) {
+    return; // Skip date/time display while a message is being shown
+  } else if (messageDisplayUntil > 0 && currentMillis >= messageDisplayUntil) {
+    // Message display period has ended
+    messageDisplayUntil = 0; // Reset the flag
+  }
+  
   // Check if RTC is running
   if (!rtc.isrunning()) {
     static unsigned long lastRtcErrorTime = 0;
@@ -311,7 +351,13 @@ void displayDateTime() {
     if (millis() - lastRtcErrorTime > 10000) {
       lastRtcErrorTime = millis();
       Serial.println("ERROR: RTC is not running!");
-      displayMessage("RTC Error", "No clock found", 1000);
+      // Display message with short duration to not block
+      // Don't update messageDisplayUntil here to allow normal operation
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("RTC Error");
+      lcd.setCursor(0, 1);
+      lcd.print("No clock found");
     }
     return;
   }
@@ -325,6 +371,11 @@ void displayDateTime() {
   // Update LCD display
   if (millis() - lastDisplayUpdate >= 1000) {
     lastDisplayUpdate = millis();
+    
+    // Don't update if we're displaying a message
+    if (messageDisplayUntil > 0) {
+      return;
+    }
     
     String timeStr = "";
     if (now.hour() < 10) timeStr += "0";
