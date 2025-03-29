@@ -39,6 +39,10 @@ void displayDateTime();
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
+  delay(1000);  // Give the serial connection time to start
+  
+  // Send initial debug message
+  Serial.println("Arduino starting up...");
   
   // Initialize LCD
   lcd.begin(16, 2);
@@ -46,15 +50,34 @@ void setup() {
   
   // Initialize other components
   Wire.begin();
-  rtc.begin();
+  if (rtc.begin()) {
+    Serial.println("RTC initialized successfully");
+  } else {
+    Serial.println("ERROR: Couldn't find RTC");
+    displayMessage("ERROR:", "No RTC found", 2000);
+  }
+  
+  // Test the LEDs
+  Serial.println("Testing LEDs...");
+  digitalWrite(GREEN_LED, HIGH);
+  delay(500);
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED, HIGH);
+  delay(500);
+  digitalWrite(RED_LED, LOW);
   
   // Set up servo
   pillDispenser.attach(SERVO_PIN);
   pillDispenser.write(0); // Reset position
+  Serial.println("Servo initialized");
   
   // Set up LED pins
   pinMode(GREEN_LED, OUTPUT);
   pinMode(RED_LED, OUTPUT);
+  
+  // Send ready message
+  Serial.println("SYSTEM READY - Waiting for commands");
+  Serial.println("Send 'TEST' to verify communication");
   
   displayMessage("System Ready", "Camera Mode", 0);
 }
@@ -68,12 +91,30 @@ void loop() {
     String command = Serial.readStringUntil('\n');
     command.trim();
     
-    if (command.startsWith("ACCESS:")) {
+    // Echo command back for debugging
+    Serial.print("Received command: ");
+    Serial.println(command);
+    
+    if (command == "TEST") {
+      // Test command to verify communication
+      Serial.println("TEST_RESPONSE: Communication OK");
+      digitalWrite(GREEN_LED, HIGH);
+      digitalWrite(RED_LED, HIGH);
+      displayMessage("Comm Test", "Success!", 2000);
+      digitalWrite(GREEN_LED, LOW);
+      digitalWrite(RED_LED, LOW);
+    }
+    else if (command.startsWith("ACCESS:")) {
       // Format: ACCESS:patient_id,slot_number
       int commaIndex = command.indexOf(',', 7);
       if (commaIndex > 0) {
         String patientId = command.substring(7, commaIndex);
         int slotNumber = command.substring(commaIndex + 1).toInt();
+        
+        Serial.print("ACCESS command - PatientID: ");
+        Serial.print(patientId);
+        Serial.print(", Slot: ");
+        Serial.println(slotNumber);
         
         // Get patient name from MongoDB (if included in command)
         String patientName = "Patient";
@@ -81,6 +122,8 @@ void loop() {
         if (nameIndex > 0) {
           patientName = command.substring(commaIndex + 1, nameIndex);
           slotNumber = command.substring(nameIndex + 1).toInt();
+          Serial.print("Patient name: ");
+          Serial.println(patientName);
         }
         
         // Grant access
@@ -92,6 +135,8 @@ void loop() {
         
         digitalWrite(GREEN_LED, LOW);
         displayMessage("Pills Dispensed", "Slot: " + String(slotNumber), 3000);
+      } else {
+        Serial.println("ERROR: Invalid ACCESS command format");
       }
     } 
     else if (command.startsWith("DENY:")) {
@@ -104,6 +149,11 @@ void loop() {
         denyReason = patientId.substring(commaIndex + 1);
         patientId = patientId.substring(0, commaIndex);
       }
+      
+      Serial.print("DENY command - PatientID: ");
+      Serial.print(patientId);
+      Serial.print(", Reason: ");
+      Serial.println(denyReason);
       
       // Deny access
       digitalWrite(RED_LED, HIGH);
@@ -169,7 +219,15 @@ void displayMessage(String line1, String line2, int duration) {
 
 // Display current date and time
 void displayDateTime() {
+  // Check if RTC is running
   if (!rtc.isrunning()) {
+    static unsigned long lastRtcErrorTime = 0;
+    // Only report RTC error once every 10 seconds to avoid spamming
+    if (millis() - lastRtcErrorTime > 10000) {
+      lastRtcErrorTime = millis();
+      Serial.println("ERROR: RTC is not running!");
+      displayMessage("RTC Error", "No clock found", 1000);
+    }
     return;
   }
   
@@ -177,6 +235,9 @@ void displayDateTime() {
   
   // Only update display every second to avoid flicker
   static uint32_t lastDisplayUpdate = 0;
+  static uint32_t lastSerialTimeUpdate = 0;
+  
+  // Update LCD display
   if (millis() - lastDisplayUpdate >= 1000) {
     lastDisplayUpdate = millis();
     
@@ -192,5 +253,14 @@ void displayDateTime() {
     lcd.print("Time: " + timeStr + "    ");
     lcd.setCursor(0, 1);
     lcd.print("Date: " + dateStr);
+    
+    // Log time to serial once every 30 seconds for debugging
+    if (millis() - lastSerialTimeUpdate >= 30000) {
+      lastSerialTimeUpdate = millis();
+      Serial.print("Current time: ");
+      Serial.print(timeStr);
+      Serial.print(" Date: ");
+      Serial.println(dateStr);
+    }
   }
 }
