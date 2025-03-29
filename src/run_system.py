@@ -6,6 +6,7 @@ import subprocess
 import time
 import logging
 import argparse
+import atexit
 
 # Setup logging
 logging.basicConfig(
@@ -24,14 +25,42 @@ def run_command(command, background=False):
     if background:
         # Run in background
         if sys.platform == 'win32':
-            process = subprocess.Popen(command, shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            # On Windows, use CREATE_NEW_CONSOLE to create a new window
+            process = subprocess.Popen(
+                command, 
+                shell=True, 
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
         else:
-            process = subprocess.Popen(command, shell=True)
+            # On Linux/Mac, need to set up env vars properly for shell execution
+            # and avoid breaking the environment
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                env=os.environ.copy(),  # Use current environment
+                stdout=None,  # Keep stdout/stderr connected to parent
+                stderr=None
+            )
+        
+        # Give process time to start
+        time.sleep(1)
+        
+        # Check if process started successfully
+        if process.poll() is not None:
+            logger.error(f"Process failed to start or terminated immediately with code {process.returncode}")
+        else:
+            logger.info(f"Process started with PID {process.pid}")
+            
         return process
     else:
         # Run in foreground
         try:
-            subprocess.run(command, shell=True, check=True)
+            result = subprocess.run(
+                command, 
+                shell=True, 
+                check=True, 
+                env=os.environ.copy()
+            )
             return None
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed with code {e.returncode}")
@@ -80,39 +109,88 @@ def main():
     # Step 3: Run face recognition
     if args.test:
         logger.info("[Step 3/4] Running face recognition test...")
-        rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
+        if sys.platform == 'win32':
+            # Windows needs different env var syntax
+            rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
+        else:
+            rec_cmd = f"python {os.path.join(script_dir, 'test_recognition.py')}"
     elif args.debug:
         logger.info("[Step 3/4] Starting face recognition system in DEBUG mode...")
         rec_cmd = f"python {os.path.join(script_dir, 'debug_recognition.py')}"
     else:
-        logger.info("[Step 3/4] Starting face recognition system...")
+        logger.info("[Step 3/4] Starting face recognition system with debug overlay...")
         # Add environment variable to enable debug display
-        rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+        if sys.platform == 'win32':
+            # Windows needs different env var syntax
+            rec_cmd = f"set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+        else:
+            rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
     
     rec_process = run_command(rec_cmd, background=True)
     
+    # Register cleanup function to ensure processes are terminated
+    def cleanup_processes():
+        logger.info("Cleaning up processes...")
+        if sync_process:
+            try:
+                sync_process.terminate()
+                logger.info("Terminated photo sync service")
+            except:
+                pass
+        if rec_process:
+            try:
+                rec_process.terminate()
+                logger.info("Terminated face recognition")
+            except:
+                pass
+        logger.info("Cleanup complete")
+    
+    atexit.register(cleanup_processes)
+    
+    # Log the state of the launched processes
+    if rec_process:
+        logger.info(f"Face recognition running with PID: {rec_process.pid}")
+    if sync_process:
+        logger.info(f"Photo sync service running with PID: {sync_process.pid}")
+    
     # Step 4: Monitor processes
     logger.info("[Step 4/4] System running - press Ctrl+C to stop")
+    logger.info("Note: Each component is running in its own window")
+    
     try:
-        while True:
-            # Check if processes are still running
-            if sync_process and sync_process.poll() is not None:
-                logger.warning("Photo sync service has stopped")
-            
-            if rec_process and rec_process.poll() is not None:
-                logger.warning("Face recognition has stopped")
-                break
-            
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Shutting down system...")
+        # Keep main process running
+        print("\nSystem is now running in multiple windows.")
+        print("Press Ctrl+C here to stop all components.\n")
         
-        # Terminate processes
-        if sync_process:
-            sync_process.terminate()
-        if rec_process:
-            rec_process.terminate()
+        while True:
+            # Print status update every 10 seconds
+            for i in range(10):
+                # Check if processes are still running
+                if sync_process and sync_process.poll() is not None:
+                    logger.warning("Photo sync service has stopped")
+                
+                if rec_process and rec_process.poll() is not None:
+                    logger.warning("Face recognition has stopped")
+                    print("Face recognition window closed. Restarting...")
+                    # Restart face recognition
+                    if args.debug:
+                        rec_cmd = f"python {os.path.join(script_dir, 'debug_recognition.py')}"
+                    else:
+                        if sys.platform == 'win32':
+                            rec_cmd = f"set PILL_DISPENSER_DEBUG=1 && python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+                        else:
+                            rec_cmd = f"PILL_DISPENSER_DEBUG=1 python {os.path.join(script_dir, 'face_recognition_fix.py')}"
+                    rec_process = run_command(rec_cmd, background=True)
+                
+                time.sleep(1)
             
+            # Print status every 10 seconds
+            print(f"System running... (Press Ctrl+C to stop)")
+            
+    except KeyboardInterrupt:
+        print("\nShutdown requested...")
+        logger.info("Shutting down system...")
+        cleanup_processes()
         logger.info("System shutdown complete")
 
 if __name__ == "__main__":
