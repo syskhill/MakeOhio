@@ -87,7 +87,8 @@ void loop() {
   lcd.print("Date:");
   lcd.print(now.month());
   lcd.print("/");
-  lcd.print(now.day());
+  if (adjustedHour > 12) lcd.print(now.day() - 1);
+  else lcd.print(now.day());
   lcd.print("/");
   lcd.print(now.year());
 
@@ -115,6 +116,7 @@ void loop() {
     }
   }
 
+  // Only check RFID if a new card is available
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     Serial.print("Scanned UID: ");
     bool isAuthorized = true;
@@ -132,12 +134,12 @@ void loop() {
     if (isAuthorized) {
       Serial.println("✅ Access Granted!");
       digitalWrite(GREEN_LED, HIGH);
-      delay(2000);
+      delay(2000); // Display LED for 2 seconds
       digitalWrite(GREEN_LED, LOW);
     } else {
       Serial.println("❌ Access Denied!");
       digitalWrite(RED_LED, HIGH);
-      delay(2000);
+      delay(2000); // Display LED for 2 seconds
       digitalWrite(RED_LED, LOW);
     }
 
@@ -145,6 +147,6 @@ void loop() {
     rfid.PCD_StopCrypto1();
   }
 
-  // Remove the long delay to allow continuous scanning without a pause
-  delay(100);  // Reduced delay for faster processing of new cards
+  // Reduce delay to make the loop more responsive
+  // delay(50);  // Reduced delay for faster processing of new cards
 }
