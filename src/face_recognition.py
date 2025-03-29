@@ -19,7 +19,7 @@ ARDUINO_PORT = "/dev/ttyACM0"  # Common Arduino port on Linux, change as needed
 ARDUINO_BAUD_RATE = 9600
 CAMERA_ID = 0  # Default camera (0 is usually the built-in webcam)
 FACE_CASCADE_PATH = "haarcascade_frontalface_default.xml"
-RECOGNITION_CONFIDENCE_THRESHOLD = 70  # Minimum confidence (0-100)
+RECOGNITION_CONFIDENCE_THRESHOLD = 50  # Lowered minimum confidence (0-100)
 PHOTOS_DIR = "/home/connor/MakeOhio/Software/mern/client/public/photos"  # Directory for photos
 MODEL_SAVE_PATH = "face_recognition_model.yml"  # Path to save/load trained model
 MERN_SERVER_URL = "http://localhost:5050/record"  # URL of the MERN stack server
@@ -232,7 +232,7 @@ def load_patient_photos():
 
 def train_recognizer():
     """Train the face recognizer with loaded patient faces"""
-    global label_to_patient_map
+    global label_to_patient_map, recognizer
     
     if not patient_faces:
         logger.warning("No face data available to train the recognizer")
@@ -242,15 +242,40 @@ def train_recognizer():
     labels = []
     label_to_patient_map = {}  # Map numeric labels to patient IDs
     
+    # Create a new recognizer instance to reset previous training
+    recognizer = cv2.face.LBPHFaceRecognizer_create(
+        radius=2,           # Reduced radius for better performance
+        neighbors=8,        # Standard number of neighbors
+        grid_x=8,           # Increased grid for more accuracy
+        grid_y=8,           # Increased grid for more accuracy
+        threshold=100.0     # Higher threshold to avoid false negatives
+    )
+    
     next_label = 0
     for patient_id, face_list in patient_faces.items():
         label_to_patient_map[next_label] = patient_id
+        logger.info(f"Training patient ID {patient_id} with label {next_label} - {len(face_list)} face samples")
         
+        # Add multiple versions of each face with slight augmentation
         for face in face_list:
-            # Resize face if needed
+            # Original face
             resized_face = cv2.resize(face, (100, 100))
             faces.append(resized_face)
             labels.append(next_label)
+            
+            # Augment with small rotation variations
+            rows, cols = resized_face.shape
+            for angle in [-5, 5]:  # Small rotations
+                M = cv2.getRotationMatrix2D((cols/2, rows/2), angle, 1)
+                rotated = cv2.warpAffine(resized_face, M, (cols, rows))
+                faces.append(rotated)
+                labels.append(next_label)
+                
+            # Augment with brightness variations
+            for factor in [0.9, 1.1]:  # Slight brightness changes
+                brightened = cv2.convertScaleAbs(resized_face, alpha=factor, beta=0)
+                faces.append(brightened)
+                labels.append(next_label)
         
         next_label += 1
     
@@ -259,7 +284,7 @@ def train_recognizer():
         return False
         
     recognizer.train(faces, np.array(labels))
-    logger.info(f"Trained recognizer with {len(faces)} faces from {len(patient_faces)} patients")
+    logger.info(f"Trained recognizer with {len(faces)} augmented faces from {len(patient_faces)} patients")
     
     # Save the trained model
     try:
@@ -386,12 +411,21 @@ def run_face_recognition():
         recognition_active = False
         return
     
-    # Set resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    # Set resolution (lower for better performance)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 480)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+    
+    # Set FPS to improve performance
+    cap.set(cv2.CAP_PROP_FPS, 15)
+    
+    # Set camera buffer size to 1 to avoid lag
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    
+    # Set camera auto exposure for better image quality
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)  # 0.75 is auto mode on many cameras
     
     last_recognition_time = 0
-    recognition_cooldown = 5  # Seconds between recognitions
+    recognition_cooldown = 1  # Reduced cooldown between recognitions
     
     logger.info("Starting face recognition thread")
     
@@ -404,12 +438,13 @@ def run_face_recognition():
         # Convert to grayscale for face detection
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Detect faces
+        # Detect faces with optimized parameters
         faces = face_cascade.detectMultiScale(
             gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30)
+            scaleFactor=1.2,  # Increased for faster detection
+            minNeighbors=4,   # Reduced slightly for better detection
+            minSize=(50, 50), # Larger minimum face size
+            flags=cv2.CASCADE_SCALE_IMAGE
         )
         
         current_time = time.time()
@@ -422,14 +457,42 @@ def run_face_recognition():
             # Check if enough time has passed since last recognition
             if current_time - last_recognition_time > recognition_cooldown:
                 # Try to recognize the face
+                # Pre-process the face for better recognition
                 face_roi = gray[y:y+h, x:x+w]
+                
+                # Apply histogram equalization to improve contrast
+                face_roi = cv2.equalizeHist(face_roi)
+                
+                # Resize to consistent size
                 resized_face = cv2.resize(face_roi, (100, 100))
                 
                 try:
+                    # Get multiple predictions with slightly different face crops for robustness
+                    predictions = []
+                    confidences = []
+                    
+                    # Original face
                     label, confidence = recognizer.predict(resized_face)
+                    predictions.append(label)
+                    confidences.append(confidence)
+                    
+                    # Try different brightness variations for robustness
+                    for factor in [0.85, 1.15]:
+                        adjusted = cv2.convertScaleAbs(resized_face, alpha=factor, beta=0)
+                        label_bright, conf_bright = recognizer.predict(adjusted)
+                        predictions.append(label_bright)
+                        confidences.append(conf_bright)
+                    
+                    # Get the most common prediction
+                    from collections import Counter
+                    pred_counts = Counter(predictions)
+                    most_common_label = pred_counts.most_common(1)[0][0]
+                    
+                    # Get the best confidence for this label
+                    best_confidence = min([conf for pred, conf in zip(predictions, confidences) if pred == most_common_label])
                     
                     # Convert confidence to a more intuitive 0-100 scale (100 is best match)
-                    confidence_score = 100 - min(100, confidence)
+                    confidence_score = 100 - min(100, best_confidence)
                     
                     # Display confidence score on frame
                     cv2.putText(frame, f"Conf: {confidence_score:.1f}%", 
@@ -437,8 +500,8 @@ def run_face_recognition():
                     
                     # Check if confidence meets threshold
                     if confidence_score >= RECOGNITION_CONFIDENCE_THRESHOLD:
-                        if label in label_to_patient_map:
-                            patient_id = label_to_patient_map[label]
+                        if most_common_label in label_to_patient_map:
+                            patient_id = label_to_patient_map[most_common_label]
                             
                             # Find patient name
                             patient_name = "Unknown"
@@ -484,13 +547,11 @@ def run_face_recognition():
         # Display the frame
         cv2.imshow('Face Recognition', frame)
         
-        # Break loop on 'q' press or if recognition_active is False
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # More efficient way to control frame rate and reduce CPU usage
+        # 30ms delay (~33 FPS), break on 'q' press
+        if cv2.waitKey(30) & 0xFF == ord('q'):
             recognition_active = False
             break
-        
-        # Small delay to prevent high CPU usage
-        time.sleep(0.05)
     
     # Release resources
     cap.release()
@@ -548,12 +609,33 @@ def stop_recognition():
 @app.route('/reload-patients', methods=['POST'])
 def reload_patients():
     """Reload patient data from MongoDB and retrain model"""
+    global recognizer
+    
+    # Create new LBPH face recognizer with optimized parameters
+    recognizer = cv2.face.LBPHFaceRecognizer_create(
+        radius=2,           # Reduced radius for better performance
+        neighbors=8,        # Standard number of neighbors
+        grid_x=8,           # Increased grid for more accuracy
+        grid_y=8,           # Increased grid for more accuracy
+        threshold=100.0     # Higher threshold to avoid false negatives
+    )
+    
     # Load patient data
     if load_patient_data_from_mongodb() or load_patient_data_from_api():
         # Load patient photos and train the recognizer
         load_patient_photos()
-        train_recognizer()
-        return jsonify({"status": "success", "message": f"Reloaded {len(patients)} patients and retrained model"})
+        train_success = train_recognizer()
+        
+        if train_success:
+            return jsonify({
+                "status": "success", 
+                "message": f"Reloaded {len(patients)} patients and retrained model with optimized parameters"
+            })
+        else:
+            return jsonify({
+                "status": "warning", 
+                "message": f"Reloaded {len(patients)} patients but training failed - check photos and logs"
+            }), 200
     else:
         return jsonify({"status": "error", "message": "Failed to reload patient data"}), 500
 
@@ -563,30 +645,42 @@ def main():
     logger.info("Pill Dispenser Face Recognition System")
     logger.info("--------------------------------------")
     
+    # Initialize optimized face recognizer
+    global recognizer
+    recognizer = cv2.face.LBPHFaceRecognizer_create(
+        radius=2,           # Reduced radius for better performance
+        neighbors=8,        # Standard number of neighbors
+        grid_x=8,           # Increased grid for more accuracy
+        grid_y=8,           # Increased grid for more accuracy
+        threshold=100.0     # Higher threshold to avoid false negatives
+    )
+    
     # Load patient data (try MongoDB first, then API)
     if not load_patient_data_from_mongodb():
         logger.warning("Failed to load from MongoDB, trying API...")
         load_patient_data_from_api()
     
-    # Load trained model or train a new one
-    model_loaded = load_trained_model()
+    # Always re-train the model for better accuracy
+    logger.info("Loading patient photos and training face recognition model...")
+    load_patient_photos()
+    train_recognizer()
+    logger.info("Model training complete!")
     
-    if not model_loaded or len(patients) > 0:
-        # Load patient photos and train the recognizer
-        load_patient_photos()
-        train_recognizer()
-    
-    # Start the local web server in a separate thread (on a different port than MERN)
+    # Start the local web server in a separate thread
     server_thread = threading.Thread(target=app.run, kwargs={
         'host': '0.0.0.0',
         'port': 5051,  # Different port to avoid conflict with MERN
-        'debug': False
+        'debug': False,
+        'threaded': True  # Enable threading for better performance
     })
     server_thread.daemon = True
     server_thread.start()
     
     logger.info(f"Local API server running at http://localhost:5051")
     logger.info(f"Using MERN server at {MERN_SERVER_URL}")
+    
+    # Wait a moment before starting camera to ensure everything is initialized
+    time.sleep(1)
     
     # Start face recognition automatically
     global recognition_active, face_recognition_thread
