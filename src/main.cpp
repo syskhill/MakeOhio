@@ -3,17 +3,9 @@
 #include <RTClib.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
-#include <SPI.h>
-#include <MFRC522.h>
 
-#define SS_PIN 53   // RC522 SDA (Slave Select) on pin 25
-#define RST_PIN 3   // RC522 Reset
-#define GREEN_LED 4 // Green LED for correct card
-#define RED_LED 5   // Red LED for incorrect card
-
-MFRC522 rfid(SS_PIN, RST_PIN); // Create MFRC522 instance
-
-byte authorizedUID[] = { 0x37, 0x8F, 0xF8, 0x0 }; 
+#define GREEN_LED 4 // Green LED for correct face recognition
+#define RED_LED 5   // Red LED for incorrect face
 
 Servo myServo;
 
@@ -39,11 +31,6 @@ void setup() {
   myServo.attach(13);
 
   Serial.begin(9600); // Start Serial Monitor
-  SPI.begin();        // Initialize SPI bus
-  rfid.PCD_Init();    // Initialize RFID scanner
-
-  Serial.println("RFID Scanner Ready...");
-  Serial.println("Scan your card/tag...");
 
   pinMode(GREEN_LED, OUTPUT);
   pinMode(RED_LED, OUTPUT);
@@ -53,6 +40,14 @@ void setup() {
     // Set time to compile time:
     // rtc.adjust(DateTime(F(DATE), F(TIME)));
   }
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Camera System");
+  lcd.setCursor(0, 1);
+  lcd.print("Ready...");
+  
+  Serial.println("Camera Face Recognition System Ready");
 }
 
 void loop() {
@@ -71,82 +66,81 @@ void loop() {
     adjustedHour -= 24;
   }
 
-  lcd.setCursor(0, 0);
-  lcd.print("Time:");
-
-  // Format hour
-  if (adjustedHour < 10) lcd.print("0");
-  lcd.print(adjustedHour);
-  lcd.print(":");
-
-  // Format minute
-  if (adjustedMinute < 10) lcd.print("0");
-  lcd.print(adjustedMinute);
-
-  lcd.setCursor(0, 1);
-  lcd.print("Date:");
-  lcd.print(now.month());
-  lcd.print("/");
-  if (adjustedHour > 12) lcd.print(now.day() - 1);
-  else lcd.print(now.day());
-  lcd.print("/");
-  lcd.print(now.year());
-
+  // Only check Serial if data is available
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
     command.trim();
+    
     if (command == "UNLOCK") {
+      // Face recognized - unlock
       rotateServo();
-      lcd.clear(); // Clear the screen before printing new text
+      lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("Ready to");
+      lcd.print("Face Recognized");
       lcd.setCursor(0, 1);
-      lcd.print("Dispense!");
-      delay(5000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-    }
-    if (command == "LOCK") {
-      lcd.clear(); // Clear the screen before printing new text
-      lcd.setCursor(0, 0);
-      lcd.print("Locked!");
-      delay(5000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-    }
-  }
-
-  // Only check RFID if a new card is available
-  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-    Serial.print("Scanned UID: ");
-    bool isAuthorized = true;
-
-    for (byte i = 0; i < rfid.uid.size; i++) {
-      Serial.print(rfid.uid.uidByte[i], HEX);
-      Serial.print(" ");
-
-      if (rfid.uid.uidByte[i] != authorizedUID[i]) {
-        isAuthorized = false;
-      }
-    }
-    Serial.println();
-
-    if (isAuthorized) {
-      Serial.println("✅ Access Granted!");
+      lcd.print("Dispensing...");
+      
       digitalWrite(GREEN_LED, HIGH);
-      delay(2000); // Display LED for 2 seconds
+      delay(2000);
       digitalWrite(GREEN_LED, LOW);
-    } else {
-      Serial.println("❌ Access Denied!");
-      digitalWrite(RED_LED, HIGH);
-      delay(2000); // Display LED for 2 seconds
-      digitalWrite(RED_LED, LOW);
+      
+      delay(5000);
+      
+      // Return to default display
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Time: ");
+      if (adjustedHour < 10) lcd.print("0");
+      lcd.print(adjustedHour);
+      lcd.print(":");
+      if (adjustedMinute < 10) lcd.print("0");
+      lcd.print(adjustedMinute);
     }
-
-    rfid.PICC_HaltA();
-    rfid.PCD_StopCrypto1();
+    else if (command == "LOCK") {
+      // Unrecognized face - keep locked
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Access Denied!");
+      lcd.setCursor(0, 1);
+      lcd.print("Unknown Face");
+      
+      digitalWrite(RED_LED, HIGH);
+      delay(2000);
+      digitalWrite(RED_LED, LOW);
+      
+      delay(5000);
+      
+      // Return to default display
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Time: ");
+      if (adjustedHour < 10) lcd.print("0");
+      lcd.print(adjustedHour);
+      lcd.print(":");
+      if (adjustedMinute < 10) lcd.print("0");
+      lcd.print(adjustedMinute);
+    }
   }
-
-  // Reduce delay to make the loop more responsive
-  // delay(50);  // Reduced delay for faster processing of new cards
+  
+  // Update time display every 30 seconds
+  static unsigned long lastDisplay = 0;
+  if (millis() - lastDisplay >= 30000) {
+    lastDisplay = millis();
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Time: ");
+    if (adjustedHour < 10) lcd.print("0");
+    lcd.print(adjustedHour);
+    lcd.print(":");
+    if (adjustedMinute < 10) lcd.print("0");
+    lcd.print(adjustedMinute);
+    
+    lcd.setCursor(0, 1);
+    lcd.print("Date: ");
+    lcd.print(now.month());
+    lcd.print("/");
+    if (adjustedHour > 12) lcd.print(now.day() - 1);
+    else lcd.print(now.day());
+  }
 }
