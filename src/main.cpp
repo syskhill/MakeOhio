@@ -15,6 +15,9 @@ Servo pillDispenser;            // Servo for dispensing pills
 RTC_DS1307 rtc;                // Real-time clock
 LiquidCrystal lcd(7, 8, 9, 10, 11, 12); // LCD display
 
+// Global variables for message display
+unsigned long messageDisplayUntil = 0;  // Timestamp when current message should expire
+
 // Variables for face recognition
 String recognizedPatientId = "";
 bool faceRecognized = false;
@@ -136,7 +139,7 @@ void loop() {
             
             // Get confidence score if available
             float confidence = 0.0;
-            if (slotIndex < command.length() - 1) {
+            if (slotIndex < (int)command.length() - 1) {
               confidence = command.substring(slotIndex + 1).toFloat();
             }
             
@@ -296,9 +299,6 @@ void rotateServoToSlot(int slotNumber) {
   // Return to home position
   pillDispenser.write(0);
 }
-
-// Global variable to track when message display should end
-unsigned long messageDisplayUntil = 0;
 
 // Display message on LCD
 void displayMessage(String line1, String line2, int duration) {
