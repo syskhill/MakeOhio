@@ -111,21 +111,47 @@ try:
     # Try different serial ports based on platform
     possible_ports = [
         "/dev/ttyACM0",  # Common Arduino port on Linux
+        "/dev/ttyACM1",  # Alternative Arduino port on Linux
         "/dev/ttyUSB0",  # Another common Arduino port on Linux
-        "COM4"           # Common port on Windows
+        "/dev/ttyUSB1",  # Alternative USB port on Linux
+        "COM1", "COM2", "COM3", "COM4", "COM5"  # Common ports on Windows
     ]
+    
+    # Add platform-specific ports
+    if sys.platform == 'darwin':  # MacOS
+        for i in range(10):
+            possible_ports.append(f"/dev/tty.usbmodem{i+1}")
+            possible_ports.append(f"/dev/tty.usbserial{i+1}")
+    
+    logger.info(f"Searching for Arduino on ports: {possible_ports}")
     
     for port in possible_ports:
         try:
+            logger.info(f"Trying to connect to Arduino on {port}...")
             arduino = serial.Serial(port, ARDUINO_BAUD_RATE, timeout=1)
-            logger.info(f"Connected to Arduino on {port}")
+            # Save the successful port for reconnection attempts
+            ARDUINO_PORT = port
+            logger.info(f"* * * Connected to Arduino on {port} * * *")
             time.sleep(2)  # Wait for Arduino to initialize
+            
+            # Test communication by sending a simple command
+            try:
+                arduino.write("TEST\n".encode())
+                time.sleep(0.5)
+                response = arduino.read(arduino.in_waiting).decode('utf-8', errors='ignore')
+                logger.info(f"Arduino test response: {response}")
+            except Exception as e:
+                logger.warning(f"Test communication error: {e}")
+            
             break
-        except:
+        except Exception as e:
+            logger.debug(f"Could not connect to {port}: {e}")
             continue
             
     if arduino is None:
         logger.warning("Could not connect to Arduino on any known port")
+        logger.warning("Please check that Arduino is connected and the correct port is available")
+        logger.warning("The system will continue without Arduino support")
 except Exception as e:
     logger.error(f"Error initializing Arduino connection: {e}")
 
@@ -449,9 +475,27 @@ def send_command_to_arduino(command):
     
     if arduino:
         try:
+            # First flush any existing data
+            arduino.reset_input_buffer()
+            arduino.reset_output_buffer()
+            
+            # Send the command with newline terminator
             arduino.write(f"{command}\n".encode())
-            time.sleep(0.1)  # Give Arduino time to process
+            
+            # Wait for Arduino to process
+            time.sleep(0.1)
+            
+            # Log the command
             logger.info(f"Sent command to Arduino: {command}")
+            
+            # Read any response (for debugging)
+            try:
+                response = arduino.read(arduino.in_waiting).decode('utf-8', errors='ignore')
+                if response.strip():
+                    logger.info(f"Arduino response: {response.strip()}")
+            except:
+                pass
+                
             return True
         except Exception as e:
             logger.error(f"Error sending command to Arduino: {e}")
@@ -462,17 +506,82 @@ def send_command_to_arduino(command):
             except:
                 pass
                 
+            # Use previously successful port if available
             try:
-                arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD_RATE, timeout=1)
-                logger.info(f"Reconnected to Arduino on {ARDUINO_PORT}")
+                port_to_use = getattr(send_command_to_arduino, 'last_successful_port', ARDUINO_PORT)
+                logger.info(f"Attempting to reconnect to Arduino on {port_to_use}...")
+                
+                arduino = serial.Serial(port_to_use, ARDUINO_BAUD_RATE, timeout=1)
+                logger.info(f"Reconnected to Arduino on {port_to_use}")
+                
+                # Save this port for future reconnection attempts
+                send_command_to_arduino.last_successful_port = port_to_use
+                
+                # Try sending the command again
                 arduino.write(f"{command}\n".encode())
+                logger.info(f"Re-sent command to Arduino after reconnection: {command}")
                 return True
             except Exception as e:
                 logger.error(f"Failed to reconnect to Arduino: {e}")
+                
+                # If reconnection to the previous port failed, try all possible ports again
+                logger.info("Trying all possible ports...")
+                possible_ports = [
+                    "/dev/ttyACM0", "/dev/ttyACM1", 
+                    "/dev/ttyUSB0", "/dev/ttyUSB1",
+                    "COM1", "COM2", "COM3", "COM4", "COM5"
+                ]
+                
+                for port in possible_ports:
+                    try:
+                        logger.info(f"Trying to connect to Arduino on {port}...")
+                        arduino = serial.Serial(port, ARDUINO_BAUD_RATE, timeout=1)
+                        logger.info(f"Successfully reconnected to Arduino on {port}")
+                        
+                        # Save this port for future reconnection attempts
+                        send_command_to_arduino.last_successful_port = port
+                        
+                        # Try sending the command again
+                        arduino.write(f"{command}\n".encode())
+                        logger.info(f"Re-sent command to Arduino after reconnection: {command}")
+                        return True
+                    except:
+                        continue
+                
                 arduino = None
+                logger.error("Failed to reconnect to Arduino on any port")
     else:
         logger.warning(f"Cannot send command, Arduino not connected: {command}")
-    
+        
+        # Try to establish a new connection
+        try:
+            logger.info("Attempting to establish new Arduino connection...")
+            possible_ports = [
+                "/dev/ttyACM0", "/dev/ttyACM1", 
+                "/dev/ttyUSB0", "/dev/ttyUSB1",
+                "COM1", "COM2", "COM3", "COM4", "COM5"
+            ]
+            
+            for port in possible_ports:
+                try:
+                    logger.info(f"Trying to connect to Arduino on {port}...")
+                    arduino = serial.Serial(port, ARDUINO_BAUD_RATE, timeout=1)
+                    logger.info(f"Successfully connected to Arduino on {port}")
+                    
+                    # Save this port for future reconnection attempts
+                    send_command_to_arduino.last_successful_port = port
+                    
+                    # Try sending the command
+                    arduino.write(f"{command}\n".encode())
+                    logger.info(f"Sent command to Arduino after new connection: {command}")
+                    return True
+                except:
+                    continue
+                    
+            logger.error("Failed to establish Arduino connection on any port")
+        except Exception as e:
+            logger.error(f"Error establishing Arduino connection: {e}")
+            
     return False
 
 def run_face_recognition():
