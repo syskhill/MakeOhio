@@ -284,14 +284,9 @@ def train_recognizer():
     labels = []
     label_to_patient_map = {}  # Map numeric labels to patient IDs
     
-    # Create a new recognizer instance to reset previous training
-    recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=2,           # Reduced radius for better performance
-        neighbors=8,        # Standard number of neighbors
-        grid_x=8,           # Increased grid for more accuracy
-        grid_y=8,           # Increased grid for more accuracy
-        threshold=100.0     # Higher threshold to avoid false negatives
-    )
+    # Create a new recognizer instance with DEFAULT parameters
+    # Using default parameters to ensure consistency with other scripts
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
     
     next_label = 0
     for patient_id, face_list in patient_faces.items():
@@ -567,8 +562,8 @@ def run_face_recognition():
                     
                     # Convert confidence to a more intuitive 0-100 scale (100 is best match)
                     # LBPH returns distance values, where lower values mean better match
-                    # Standard conversion formula - adjust values based on testing
-                    confidence_score = max(0, min(100, 100 * (1 - (best_confidence / 100))))
+                    # Using simpler, more reliable formula: confidence = max(0, 100 - distance)
+                    confidence_score = max(0, 100 - min(100, best_confidence))
                     
                     # Display confidence score on frame
                     cv2.putText(frame, f"Conf: {confidence_score:.1f}%", 
@@ -687,14 +682,8 @@ def reload_patients():
     """Reload patient data from MongoDB and retrain model"""
     global recognizer
     
-    # Create new LBPH face recognizer with optimized parameters
-    recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=2,           # Reduced radius for better performance
-        neighbors=8,        # Standard number of neighbors
-        grid_x=8,           # Increased grid for more accuracy
-        grid_y=8,           # Increased grid for more accuracy
-        threshold=100.0     # Higher threshold to avoid false negatives
-    )
+    # Create new LBPH face recognizer with default parameters
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
     
     # Load patient data
     if load_patient_data_from_mongodb() or load_patient_data_from_api():
@@ -721,15 +710,9 @@ def main():
     logger.info("Pill Dispenser Face Recognition System")
     logger.info("--------------------------------------")
     
-    # Initialize optimized face recognizer
+    # Initialize face recognizer with default parameters for consistency
     global recognizer
-    recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=2,           # Reduced radius for better performance
-        neighbors=8,        # Standard number of neighbors
-        grid_x=8,           # Increased grid for more accuracy
-        grid_y=8,           # Increased grid for more accuracy
-        threshold=100.0     # Higher threshold to avoid false negatives
-    )
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
     
     # Load patient data (try MongoDB first, then API)
     if not load_patient_data_from_mongodb():

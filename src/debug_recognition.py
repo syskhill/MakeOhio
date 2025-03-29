@@ -104,14 +104,10 @@ def train_recognition_model():
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + FACE_CASCADE_PATH)
     logger.info("Face cascade classifier initialized")
     
-    # Initialize face recognition
-    recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=1,
-        neighbors=8,
-        grid_x=8,
-        grid_y=8
-    )
-    logger.info("Face recognizer created with custom parameters")
+    # Initialize face recognition with standard parameters
+    # Using the exact same parameters as the main system
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    logger.info("Face recognizer created with DEFAULT parameters")
     
     # Get list of photos
     photos = glob.glob(os.path.join(PHOTOS_DIR, "*.jpg")) + \
@@ -332,7 +328,24 @@ def test_recognition(recognizer, label_map):
                     
                     # Convert confidence to percentage
                     # LBPH returns distance values (lower is better)
-                    confidence_pct = max(0, min(100, 100 * (1 - (confidence / 100))))
+                    # Try both conversion formulas for comparison
+                    
+                    # Formula 1: Original from face_recognition_fix.py
+                    confidence_pct1 = max(0, min(100, 100 * (1 - (confidence / 100))))
+                    
+                    # Formula 2: Simple direct conversion (100 - distance)
+                    confidence_pct2 = max(0, 100 - min(100, confidence))
+                    
+                    # Formula 3: Non-linear normalization
+                    confidence_pct3 = max(0, min(100, 100 * np.exp(-0.01 * confidence)))
+                    
+                    # Use Formula 2 for display - seems most reliable
+                    confidence_pct = confidence_pct2
+                    
+                    print(f"  Confidence calculations:")
+                    print(f"    - Formula 1 (1-(d/100)): {confidence_pct1:.2f}%")
+                    print(f"    - Formula 2 (100-d): {confidence_pct2:.2f}%")
+                    print(f"    - Formula 3 (exp): {confidence_pct3:.2f}%")
                     print(f"  Confidence: {confidence_pct:.2f}%")
                     
                     # Display on frame
