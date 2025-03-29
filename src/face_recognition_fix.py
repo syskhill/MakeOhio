@@ -446,6 +446,12 @@ def run_face_recognition():
     """Run continuous face recognition in a separate thread"""
     global recognition_active, last_recognition_result
     
+    # Safety check: make sure we have a trained model
+    if not patient_faces or not label_to_patient_map:
+        logger.error("Cannot run face recognition - no trained model available")
+        recognition_active = False
+        return
+    
     # Initialize camera
     cap = cv2.VideoCapture(CAMERA_ID)
     if not cap.isOpened():
@@ -509,23 +515,49 @@ def run_face_recognition():
                 resized_face = cv2.resize(face_roi, (100, 100))
                 
                 try:
+                    # Safety check to make sure the recognizer has been trained
+                    if not label_to_patient_map:
+                        logger.error("Face recognizer has not been trained!")
+                        cv2.putText(frame, "Error: Model not trained", 
+                                   (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                        continue
+                    
                     # Get multiple predictions with slightly different face crops for robustness
                     predictions = []
                     confidences = []
                     
                     # Original face
-                    label, confidence = recognizer.predict(resized_face)
-                    predictions.append(label)
-                    confidences.append(confidence)
+                    try:
+                        label, confidence = recognizer.predict(resized_face)
+                        predictions.append(label)
+                        confidences.append(confidence)
+                    except cv2.error as e:
+                        if "This LBPH model is not computed yet" in str(e):
+                            logger.error("Face recognizer model not trained properly!")
+                            cv2.putText(frame, "Error: Model not trained", 
+                                       (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                            continue
+                        else:
+                            raise
                     
                     # Try different brightness variations for robustness
                     for factor in [0.85, 1.15]:
                         adjusted = cv2.convertScaleAbs(resized_face, alpha=factor, beta=0)
-                        label_bright, conf_bright = recognizer.predict(adjusted)
-                        predictions.append(label_bright)
-                        confidences.append(conf_bright)
+                        try:
+                            label_bright, conf_bright = recognizer.predict(adjusted)
+                            predictions.append(label_bright)
+                            confidences.append(conf_bright)
+                        except cv2.error:
+                            # Skip if prediction fails
+                            continue
                     
-                    # Get the most common prediction
+                    # Get the most common prediction if we have any predictions
+                    if not predictions:
+                        logger.warning("No valid predictions were made for this face")
+                        cv2.putText(frame, "Could not recognize", 
+                                   (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                        continue
+                        
                     from collections import Counter
                     pred_counts = Counter(predictions)
                     most_common_label = pred_counts.most_common(1)[0][0]
@@ -705,7 +737,20 @@ def main():
     # Always re-train the model for better accuracy
     logger.info("Loading patient photos and training face recognition model...")
     load_patient_photos()
-    train_recognizer()
+    
+    # Check if we have any patient faces to train with
+    if not patient_faces:
+        logger.error("No patient faces found for training! Cannot start face recognition.")
+        logger.error("Please make sure patient photos are available and contain faces.")
+        return
+    
+    # Train the recognizer
+    training_success = train_recognizer()
+    if not training_success:
+        logger.error("Failed to train the face recognition model!")
+        logger.error("Cannot proceed without a trained model.")
+        return
+        
     logger.info("Model training complete!")
     
     # Start the local web server in a separate thread
@@ -724,7 +769,7 @@ def main():
     # Wait a moment before starting camera to ensure everything is initialized
     time.sleep(1)
     
-    # Start face recognition automatically
+    # Start face recognition only if training was successful
     global recognition_active, face_recognition_thread
     recognition_active = True
     face_recognition_thread = threading.Thread(target=run_face_recognition)
