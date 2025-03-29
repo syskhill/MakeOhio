@@ -646,13 +646,13 @@ def run_face_recognition():
                             cv2.putText(frame, status_text, 
                                         (x, y+h+45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
                             
-                            # Send command to Arduino
+                            # Send command to Arduino with confidence score included
                             if has_access:
-                                logger.info(f"Access granted for slot {slot_number}")
-                                send_command_to_arduino(f"ACCESS:{patient_id},{patient_name},{slot_number}")
+                                logger.info(f"Access granted for slot {slot_number} with confidence {confidence_score:.1f}%")
+                                send_command_to_arduino(f"ACCESS:{patient_id},{patient_name},{slot_number},{confidence_score:.1f}")
                             else:
-                                logger.info(f"Access denied: {message}")
-                                send_command_to_arduino(f"DENY:{patient_id},{message}")
+                                logger.info(f"Access denied: {message} with confidence {confidence_score:.1f}%")
+                                send_command_to_arduino(f"DENY:{patient_id},{message},{confidence_score:.1f}")
                                 
                             last_recognition_time = current_time
                 except Exception as e:

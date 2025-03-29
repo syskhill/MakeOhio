@@ -105,58 +105,143 @@ void loop() {
       digitalWrite(RED_LED, LOW);
     }
     else if (command.startsWith("ACCESS:")) {
-      // Format: ACCESS:patient_id,slot_number
+      // Format: ACCESS:patient_id,patient_name,slot_number,confidence
       int commaIndex = command.indexOf(',', 7);
       if (commaIndex > 0) {
         String patientId = command.substring(7, commaIndex);
-        int slotNumber = command.substring(commaIndex + 1).toInt();
         
-        Serial.print("ACCESS command - PatientID: ");
-        Serial.print(patientId);
-        Serial.print(", Slot: ");
-        Serial.println(slotNumber);
-        
-        // Get patient name from MongoDB (if included in command)
+        // Get patient name
         String patientName = "Patient";
         int nameIndex = command.indexOf(',', commaIndex + 1);
         if (nameIndex > 0) {
           patientName = command.substring(commaIndex + 1, nameIndex);
-          slotNumber = command.substring(nameIndex + 1).toInt();
-          Serial.print("Patient name: ");
-          Serial.println(patientName);
+          
+          // Get slot number
+          int slotIndex = command.indexOf(',', nameIndex + 1);
+          int slotNumber = 1; // Default slot
+          
+          if (slotIndex > 0) {
+            slotNumber = command.substring(nameIndex + 1, slotIndex).toInt();
+            
+            // Get confidence score if available
+            float confidence = 0.0;
+            if (slotIndex < command.length() - 1) {
+              confidence = command.substring(slotIndex + 1).toFloat();
+            }
+            
+            Serial.print("ACCESS command - PatientID: ");
+            Serial.print(patientId);
+            Serial.print(", Name: ");
+            Serial.print(patientName);
+            Serial.print(", Slot: ");
+            Serial.print(slotNumber);
+            Serial.print(", Confidence: ");
+            Serial.println(confidence);
+            
+            // Grant access
+            digitalWrite(GREEN_LED, HIGH);
+            
+            // First display confidence
+            String confidenceStr = String(confidence, 1) + "%";
+            displayMessage("Match: " + confidenceStr, patientName, 2000);
+            
+            // Then display access granted
+            displayMessage("Access Granted", patientName, 2000);
+            
+            // Move servo to dispense from the correct slot
+            rotateServoToSlot(slotNumber);
+            
+            digitalWrite(GREEN_LED, LOW);
+            displayMessage("Pills Dispensed", "Slot: " + String(slotNumber), 3000);
+          } else {
+            // Old format fallback
+            slotNumber = command.substring(nameIndex + 1).toInt();
+            
+            Serial.print("ACCESS command - PatientID: ");
+            Serial.print(patientId);
+            Serial.print(", Name: ");
+            Serial.print(patientName);
+            Serial.print(", Slot: ");
+            Serial.println(slotNumber);
+            
+            // Grant access
+            digitalWrite(GREEN_LED, HIGH);
+            displayMessage("Access Granted", patientName, 2000);
+            
+            // Move servo to dispense from the correct slot
+            rotateServoToSlot(slotNumber);
+            
+            digitalWrite(GREEN_LED, LOW);
+            displayMessage("Pills Dispensed", "Slot: " + String(slotNumber), 3000);
+          }
+        } else {
+          // Old format fallback
+          int slotNumber = command.substring(commaIndex + 1).toInt();
+          
+          Serial.print("ACCESS command - PatientID: ");
+          Serial.print(patientId);
+          Serial.print(", Slot: ");
+          Serial.println(slotNumber);
+          
+          // Grant access
+          digitalWrite(GREEN_LED, HIGH);
+          displayMessage("Access Granted", "Patient", 2000);
+          
+          // Move servo to dispense from the correct slot
+          rotateServoToSlot(slotNumber);
+          
+          digitalWrite(GREEN_LED, LOW);
+          displayMessage("Pills Dispensed", "Slot: " + String(slotNumber), 3000);
         }
-        
-        // Grant access
-        digitalWrite(GREEN_LED, HIGH);
-        displayMessage("Access Granted", patientName, 2000);
-        
-        // Move servo to dispense from the correct slot
-        rotateServoToSlot(slotNumber);
-        
-        digitalWrite(GREEN_LED, LOW);
-        displayMessage("Pills Dispensed", "Slot: " + String(slotNumber), 3000);
       } else {
         Serial.println("ERROR: Invalid ACCESS command format");
       }
     } 
     else if (command.startsWith("DENY:")) {
-      // Format: DENY:patient_id or DENY:patient_id,reason
+      // Format: DENY:patient_id,reason,confidence
       String patientId = command.substring(5);
       String denyReason = "Access Denied";
+      float confidence = 0.0;
       
-      int commaIndex = patientId.indexOf(',');
-      if (commaIndex > 0) {
-        denyReason = patientId.substring(commaIndex + 1);
-        patientId = patientId.substring(0, commaIndex);
+      // Parse the components
+      int firstComma = patientId.indexOf(',');
+      if (firstComma > 0) {
+        // Extract reason
+        String remainder = patientId.substring(firstComma + 1);
+        patientId = patientId.substring(0, firstComma);
+        
+        // Look for another comma for confidence
+        int secondComma = remainder.indexOf(',');
+        if (secondComma > 0) {
+          // We have confidence info
+          denyReason = remainder.substring(0, secondComma);
+          confidence = remainder.substring(secondComma + 1).toFloat();
+        } else {
+          // Just reason, no confidence
+          denyReason = remainder;
+        }
       }
       
       Serial.print("DENY command - PatientID: ");
       Serial.print(patientId);
       Serial.print(", Reason: ");
-      Serial.println(denyReason);
+      Serial.print(denyReason);
+      if (confidence > 0) {
+        Serial.print(", Confidence: ");
+        Serial.println(confidence);
+      } else {
+        Serial.println();
+      }
       
       // Deny access
       digitalWrite(RED_LED, HIGH);
+      
+      // Show confidence if available
+      if (confidence > 0) {
+        String confidenceStr = String(confidence, 1) + "%";
+        displayMessage("Match: " + confidenceStr, "ID: " + patientId, 2000);
+      }
+      
       displayMessage("Access Denied", denyReason, 3000);
       digitalWrite(RED_LED, LOW);
     }
