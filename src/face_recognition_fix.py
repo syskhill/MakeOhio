@@ -182,10 +182,48 @@ def load_patient_photos():
     global patient_faces
     patient_faces = {}
     
+    # First, check for multi-photo format (patient_id_1.jpg, patient_id_2.jpg, etc.)
     for patient in patients:
         patient_id = patient['id']
-        photo_url = patient.get('photoUrl')
+        multi_photos = []
         
+        # Look for multiple photos with the pattern patient_id_X.jpg
+        for filename in os.listdir(PHOTOS_DIR):
+            if filename.startswith(f"{patient_id}_") and filename.endswith((".jpg", ".jpeg", ".png")):
+                multi_photos.append(os.path.join(PHOTOS_DIR, filename))
+                
+        # If we found multiple photos, process them
+        if multi_photos:
+            logger.info(f"Found {len(multi_photos)} photos for patient {patient['name']} ({patient_id})")
+            patient_faces[patient_id] = []
+            
+            for photo_path in multi_photos:
+                try:
+                    # Load and process the photo
+                    img = cv2.imread(photo_path)
+                    if img is None:
+                        logger.warning(f"Failed to read image file: {photo_path}")
+                        continue
+                        
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+                    
+                    if len(faces) > 0:
+                        (x, y, w, h) = faces[0]  # Take the first face found
+                        face_roi = gray[y:y+h, x:x+w]
+                        patient_faces[patient_id].append(face_roi)
+                        logger.info(f"Loaded face from {os.path.basename(photo_path)} for {patient['name']}")
+                    else:
+                        logger.warning(f"No face detected in {os.path.basename(photo_path)}")
+                except Exception as e:
+                    logger.error(f"Error processing photo {os.path.basename(photo_path)}: {e}")
+            
+            # If we processed at least one face successfully, we can skip the normal photoUrl
+            if patient_faces[patient_id]:
+                continue
+                
+        # If no multi-photos or they all failed, try the regular photoUrl
+        photo_url = patient.get('photoUrl')
         if not photo_url:
             logger.warning(f"No photo specified for patient {patient['name']} ({patient_id})")
             continue
