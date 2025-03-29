@@ -34,8 +34,8 @@ def recognize_face():
         if True in matches:
             print("Face recognized!")
             return True
-
     print("Face not recognized")
+
     return False
 while True:
     if recognize_face() and is_correct_time():
@@ -44,6 +44,7 @@ while True:
         time.sleep(10)  # Avoid repeated unlocks within a short time
     else:
         print("Access denied")
+        arduino.write(b'LOCK\n')
 
     time.sleep(3)  # Small delay before next recognition attempt
 

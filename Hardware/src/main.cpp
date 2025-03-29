@@ -7,9 +7,9 @@
 #include <MFRC522.h>
 
 #define SS_PIN 53   // RC522 SDA (Slave Select) on pin 25
-#define RST_PIN 2  // RC522 Reset
+#define RST_PIN 3   // RC522 Reset
 #define GREEN_LED 4 // Green LED for correct card
-#define RED_LED 3   // Red LED for incorrect card
+#define RED_LED 5   // Red LED for incorrect card
 
 MFRC522 rfid(SS_PIN, RST_PIN); // Create MFRC522 instance
 
@@ -58,17 +58,30 @@ void setup() {
 void loop() {
   DateTime now = rtc.now();
 
+  // Adjusting time by 12 hours and 3 minutes
+  int adjustedHour = now.hour() + 12;
+  int adjustedMinute = now.minute() + 3;
+
+  if (adjustedMinute >= 60) {
+    adjustedMinute -= 60;
+    adjustedHour++;
+  }
+
+  if (adjustedHour >= 24) {
+    adjustedHour -= 24;
+  }
+
   lcd.setCursor(0, 0);
   lcd.print("Time:");
-  if (now.hour() > 12) lcd.print(now.hour() - 12);
-  if (now.hour() < 12) lcd.print(now.hour() + 12); 
+
+  // Format hour
+  if (adjustedHour < 10) lcd.print("0");
+  lcd.print(adjustedHour);
   lcd.print(":");
-  if (now.minute() + 3 < 10) lcd.print("0");
-  if (now.minute() + 3 == 60) lcd.print("00");
-  if (now.minute() + 3 == 61) lcd.print("01");
-  if (now.minute() + 3 == 62) lcd.print("02");
-  if (now.minute() + 3 == 63) lcd.print("03");
-  if (now.minute() + 3 != 60 && now.minute() + 3 != 61 && now.minute() + 3 != 62 && now.minute() + 3 != 63) lcd.print(now.minute() + 3);
+
+  // Format minute
+  if (adjustedMinute < 10) lcd.print("0");
+  lcd.print(adjustedMinute);
 
   lcd.setCursor(0, 1);
   lcd.print("Date:");
@@ -83,44 +96,55 @@ void loop() {
     command.trim();
     if (command == "UNLOCK") {
       rotateServo();
+      lcd.clear(); // Clear the screen before printing new text
+      lcd.setCursor(0, 0);
+      lcd.print("Ready to");
+      lcd.setCursor(0, 1);
+      lcd.print("Dispense!");
+      delay(5000);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+    }
+    if (command == "LOCK") {
+      lcd.clear(); // Clear the screen before printing new text
+      lcd.setCursor(0, 0);
+      lcd.print("Locked!");
+      delay(5000);
+      lcd.clear();
+      lcd.setCursor(0, 0);
     }
   }
 
-  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
-    return; // No card detected
-  }
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    Serial.print("Scanned UID: ");
+    bool isAuthorized = true;
 
-  Serial.print("Scanned UID: ");
-  bool isAuthorized = true;
+    for (byte i = 0; i < rfid.uid.size; i++) {
+      Serial.print(rfid.uid.uidByte[i], HEX);
+      Serial.print(" ");
 
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    Serial.print(rfid.uid.uidByte[i], HEX);
-    Serial.print(" ");
-
-    if (rfid.uid.uidByte[i] != authorizedUID[i]) {
-      isAuthorized = false;
+      if (rfid.uid.uidByte[i] != authorizedUID[i]) {
+        isAuthorized = false;
+      }
     }
-  }
-  Serial.println();
+    Serial.println();
 
-  if (isAuthorized) {
-    Serial.println("✅ Access Granted!");
-    digitalWrite(GREEN_LED, HIGH);
-    delay(2000);
-    digitalWrite(GREEN_LED, LOW);
-  } else {
-    Serial.println("❌ Access Denied!");
-    digitalWrite(RED_LED, HIGH);
-    delay(2000);
-    digitalWrite(RED_LED, LOW);
-  }
+    if (isAuthorized) {
+      Serial.println("✅ Access Granted!");
+      digitalWrite(GREEN_LED, HIGH);
+      delay(2000);
+      digitalWrite(GREEN_LED, LOW);
+    } else {
+      Serial.println("❌ Access Denied!");
+      digitalWrite(RED_LED, HIGH);
+      delay(2000);
+      digitalWrite(RED_LED, LOW);
+    }
 
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
-
-  while(rfid.PICC_IsNewCardPresent()) {
-    delay(100);
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
   }
 
-  delay(1000);
+  // Remove the long delay to allow continuous scanning without a pause
+  delay(100);  // Reduced delay for faster processing of new cards
 }
