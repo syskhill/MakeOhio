@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 
 const Record = (props) => (
   <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+    <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0 text-xs font-mono">
+      {props.record._id}
+    </td>
     <td className="p-4 align-middle [&amp;:has([role=checkbox])]:pr-0">
       {props.record.name}
     </td>
@@ -96,6 +99,9 @@ export default function RecordList() {
           <table className="w-full caption-bottom text-sm">
             <thead className="[&amp;_tr]:border-b">
               <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
+                  Patient ID
+                </th>
                 <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&amp;:has([role=checkbox])]:pr-0">
                   Patient Name
                 </th>
